@@ -1030,9 +1030,9 @@ class Parlad(Worm):
         """
         released_dauers = []
         if self.age - self.lifespan >= 30:
-            assert self.mass > 0
             released_dauers.extend([Dauer]*self.dauer_potential)
             self.mass = self.mass - self.dauer_potential * STANDARD_LARVA_MASS
+            assert self.mass > 0
             self.die('bag')
 
         return released_dauers
