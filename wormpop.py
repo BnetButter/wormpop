@@ -1024,14 +1024,15 @@ class Parlad(Worm):
     def tax(self):
         """Rather than paying "metabolic tax," going to use this to keep track of mass as it is consumed by matricidal hatching
         """
-        self.mass -= self.mass_decrement
 
     def make_checks(self, current_food, prev_food):
         """Parlads check if it's time to burst
         """
         released_dauers = []
         if self.age - self.lifespan >= 30:
+            assert self.mass > 0
             released_dauers.extend([Dauer]*self.dauer_potential)
+            self.mass = self.mass - self.dauer_potential * STANDARD_LARVA_MASS
             self.die('bag')
 
         return released_dauers
