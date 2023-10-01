@@ -7,7 +7,8 @@ import pathlib
 import math
 import numpy
 from numpy import random
-
+import csv
+import collections
 
 # Constants:
 
@@ -63,6 +64,31 @@ gompertzN = 3 # Shape parameter, higher numbers = more square lifespan curve
 gompertzLS = 21 * 24 # Roughly average lifespan (days). Equivalent to the 168 timestep value used in the paper.
 gompertzA = gompertzLS * (math.exp(gompertzN) - 1)
 gompertzTau = 0.85 * (gompertzLS / gompertzN)
+
+def CreateCounter():
+    counter = 0
+    mass_counter = 0
+    def wrapper(func):
+        def _wraps(self, *args, **kwargs):
+            nonlocal counter
+            nonlocal mass_counter
+            val = func(self, *args, **kwargs)
+            counter += 1
+            mass_counter += self.mass
+            return val
+        return _wraps
+
+    def reporter():
+        nonlocal counter
+        nonlocal mass_counter
+        new_val = counter
+        new_mass = mass_counter
+        counter = 0
+        mass_counter = 0
+        return new_val, new_mass
+
+    return wrapper, reporter
+
 
 
 class Simulation:
@@ -242,6 +268,60 @@ class Simulation:
 
         with open(self.summary_path,'a+') as file:
             file.write('\t'.join(map(str, reportlist)) +'\n')
+        
+        # Report transitions
+        egg_to_larva, egg_to_larva_mass = HatchGet()
+        larva_to_adult, larva_to_adult_mass = LarvaToAdultGet()
+        larva_to_dauer, larva_to_dauer_mass = LarvaToDauerGet()
+        adult_to_bag, adult_to_bag_mass = AdultToBagGet()
+        dauer_to_larva, dauer_to_larva_mass = DauerToLarvaGet()
+        death_metrics = die_ind, die_mass = die_reporter()
+
+        if header:
+            with open("stage_transitions.tsv", "w") as fp:
+                writer = csv.writer(fp, delimiter="\t")
+                writer.writerow([
+                    "Timestep",
+                    "egg_to_larva", "egg_to_larva_mass", 
+                    "larva_to_adult", "larva_to_adult_mass", 
+                    "larva_to_dauer","larva_to_dauer_mass",
+                    "adult_to_bag","adult_to_bag_mass",
+                    "dauer_to_larva", "darva_to_larva_mass"])
+            
+            with open("death_transitions.tsv", "w") as fp:
+                
+                writer = csv.writer(fp, delimiter="\t")
+                fields = ["Timestep"]
+                for _class, value in die_ind.items():
+                    for cause_of_death in value.keys():
+                        for metric in [ "ind", "mass" ]:
+                            fields.append(f"{_class}-{cause_of_death}-{metric}")
+                writer.writerow(fields)
+                    
+                
+        with open("stage_transitions.tsv", "a+") as fp:
+            writer = csv.writer(fp, delimiter="\t")
+            writer.writerow([self.timestep, 
+                    egg_to_larva, egg_to_larva_mass,
+                    larva_to_adult, larva_to_adult_mass,
+                    larva_to_dauer, larva_to_dauer_mass,
+                    adult_to_bag, adult_to_bag_mass,
+                    dauer_to_larva, dauer_to_larva_mass,
+            ])
+        
+        with open("death_transitions.tsv", "a+") as fp:
+            writer = csv.writer(fp, delimiter="\t")
+            fields = [self.timestep]
+            for _class, value in die_ind.items():
+                for cause_of_death in value.keys():
+                    for i, _ in enumerate([ "ind", "mass" ]):
+                        metric = death_metrics[i]
+                        fields.append(metric[_class][cause_of_death])
+
+            writer.writerow(fields)
+                    
+        
+
 
     def run(self):
         """Run function
@@ -263,8 +343,6 @@ class Simulation:
             self.iterate_once()
             if self.timestep % 10 == 0:
                 print('{} Timesteps, Food = {} mg/mL, {} Worms Alive, {} Worms Dead'.format(self.timestep, round(self.food_concentration,2), len(self.worms), len(self.dead)))
-
-        
 
 class Worms(list):
     """Class for holding all worms in the simulation
@@ -305,9 +383,8 @@ class Worms(list):
             if w.stage == 'dead':
                 pass
             else:
-                roll = random.rand()
-                if roll <= percent_chance:
-                    w.die('culled')
+                w.cull_maybe()
+     
     #@profile
     def compute_appetite(self, food_concentration):
         """Appetite based on growth mass + egg mass + cost of living
@@ -403,6 +480,54 @@ class Dead_worms(list):
         return lifespans
 
 
+
+def create_death_counter():
+    """
+    Create the dictionary needed to count mass and individuals that die
+    """
+
+    def create_cause_of_death():
+        return {
+            "arrested_development": 0,
+            "starvation": 0,
+            "old_age": 0,
+            "culled": 0,
+            "bag": 0,
+        }
+
+    return {
+        "Egg": create_cause_of_death(),
+        "Larva": create_cause_of_death(),
+        "Adult": create_cause_of_death(),
+        "Dauer": create_cause_of_death(),
+        "Parlad": create_cause_of_death(),
+    }
+
+def CreateDeathCounter():
+    counter = create_death_counter()
+    mass_counter = create_death_counter()
+
+    def die_wrapper(func):
+        def die_fn(self, cause_of_death):
+            counter[self.__class__.__name__][cause_of_death] += 1
+            mass_counter[self.__class__.__name__][cause_of_death] += self.mass
+            return func(self, cause_of_death)
+        return die_fn
+    
+    def reporter():
+        nonlocal counter
+        nonlocal mass_counter
+        tmp_counter = counter
+        tmp_mass_counter = mass_counter
+        counter = create_death_counter()
+        mass_counter = create_death_counter()
+        return tmp_counter, tmp_mass_counter
+    return die_wrapper, reporter
+
+
+die_wrapper, die_reporter = CreateDeathCounter()
+
+
 class Worm:
     """Individual in simulation/Parent class for other worm states
 
@@ -429,12 +554,21 @@ class Worm:
     TODO add counter for number of transitions called to get wt rates as in previous model
 
     """
+
+    CULL_PERCENT = 10
+
     def __init__(self, name):
         self.name = name
-
+    
+    def cull_maybe(self):
+        roll = random.rand()
+        if roll <= self.CULL_PERCENT / 100:
+            self.die('culled')
+    
     def ageup(self):
         self.age += TIMESTEP
 
+    @die_wrapper
     def die(self, cause_of_death):
         self.__class__ = Dead
         self.__init__(self.name, cause_of_death)
@@ -457,6 +591,8 @@ class Worm:
     def make_checks(self, current_food, prev_food):
         return []
 
+
+HatchSet, HatchGet = CreateCounter()
 
 class Egg(Worm):
     """First stage
@@ -483,12 +619,16 @@ class Egg(Worm):
             self.hatch()
 
         return []
-
+    
+    @HatchSet
     def hatch(self):
         """After 5 timesteps, an egg becomes a larva
         """
         self.__class__ = Larva
         self.__init__(self.name)
+
+LarvaToDauerSet, LarvaToDauerGet = CreateCounter()
+LarvaToAdultSet, LarvaToAdultGet = CreateCounter()
 
 class Larva(Worm):
     """Second stage
@@ -614,18 +754,22 @@ class Larva(Worm):
         
         return []
 
+    @LarvaToDauerSet
     def dauer(self):
         """Enter dauer diapause
         """
         self.__class__ = Dauer
         self.__init__(self.name)
-
+    
+    @LarvaToAdultSet
     def molt(self):
         """Mature to adult
         """
         self.__class__ = Adult
         self.__init__(self.name)
 
+
+DauerToLarvaSet, DauerToLarvaGet = CreateCounter()
 
 
 class Dauer(Worm):
@@ -665,11 +809,14 @@ class Dauer(Worm):
             self.exit_dauer()
 
         return []
-
+    
+    @DauerToLarvaSet
     def exit_dauer(self):
         self.__class__ = Larva
         self.__init__(self.name)
 
+
+AdultToBagSet, AdultToBagGet = CreateCounter()
 
 class Adult(Worm):
     """Fourth stage
@@ -787,7 +934,7 @@ class Adult(Worm):
         self.convert_mass()
 
     def convert_mass(self):
-        """Allocates consumed mass to eggs
+        """Allocates consumed mass to eggsf
 
         Only allowed to allocate a set amount of mass down to min somatic mass, set as a value between mass at adulthood
         and the minimum possible adult mass. In nutrient rich conditions this shouldn't be an issue, but in times of 
@@ -851,6 +998,7 @@ class Adult(Worm):
         self.eggs_laid += number
         return [Egg] * int(number)
 
+    @AdultToBagSet
     def bag(self):
         self.__class__ = Parlad
         self.__init__(self.name)
@@ -888,6 +1036,23 @@ class Parlad(Worm):
 
         return released_dauers
 
+
+def create_dead_mass_counter():
+    
+    mass_counter = 0
+
+    def init_wrapper(func):
+        def wraps(self, *args, **kwargs):
+            nonlocal mass_counter
+            func(self, *args, **kwargs)
+            mass_counter += self.mass
+        return wraps
+
+    def get_dead_mass():
+        pass
+    
+
+
 class Dead(Worm):
     """Final stage
 
@@ -904,5 +1069,13 @@ class Dead(Worm):
 
 #%%
 
-#test = Simulation('speedtest', length=100)
-#test.run()
+Egg.CULL_PERCENT = 10
+Larva.CULL_PERCENT = 10
+Dauer.CULL_PERCENT = 10
+Adult.CULL_PERCENT = 10
+Parlad.CULL_PERCENT = 10
+
+
+
+test = Simulation('speedtest')
+test.run()
