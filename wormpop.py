@@ -1,51 +1,84 @@
 #@Author: Matt Mosley
 #2021-10-19
-
 #%%
+
+"""
+USAGE: wormpop <parameters.json> [ --database=<string> ]
+"""
 
 import pathlib
 import math
 import numpy
 from numpy import random
 import csv
-import collections
+import json
+import docopt
+import sqlite3
+
+args = docopt.docopt(__doc__)
+parameters = args["<parameters.json>"]
+database = args["--database"]
 
 # Constants:
 
-SIMULATION_LENGTH = 800 # 800 timesteps = 100 days
-TIMESTEP = 3 # 3 hr per timestep, 8 timesteps per day
+import json
 
-STARTING_WORMS = 250
-STARTING_STAGE = 'egg'
+# Read the JSON file
+with open(parameters, 'r') as file:
+    data = json.load(file)
 
-EGGMASS = 65.0 # Nanograms
+# Simulation time details
+SIMULATION_LENGTH = data['SIMULATION_LENGTH']  # 800 timesteps = 100 days
+TIMESTEP = data['TIMESTEP']  # 3 hr per timestep, 8 timesteps per day
 
-MIN_ADULT_MASS = 800 # ng
-MIN_ADULT_AGE = 60 # Minimum age in hours to transition to adult
-MAX_ADULT_AGE = 84 # Maximum age in hours to transition to adult (larvae that pass this age die of "arrested development")
+# Initial conditions
+STARTING_WORMS = data['STARTING_WORMS']
+STARTING_STAGE = data['STARTING_STAGE']  # 'egg'
+EGGMASS = data['EGGMASS']  # Nanograms
 
-STANDARD_LARVA_MASS = math.sqrt(MIN_ADULT_MASS * EGGMASS) # ~228 ng
-LARVAL_STARVE_PROB = 0.5 # Chance of larvae to cheat death by starvation, though starvation is already probabilistic(based on same rate as dauering)
+# Adult constants
+MIN_ADULT_MASS = data['MIN_ADULT_MASS']  # ng
+MIN_ADULT_AGE = data['MIN_ADULT_AGE']  # Minimum age in hours to transition to adult
+MAX_ADULT_AGE = data['MAX_ADULT_AGE']  # Max age in hours to transition (larvae past this age die of "arrested development")
 
-MIN_DAUER_MASS = 0.6 * STANDARD_LARVA_MASS # ~137 ng
-MAX_DAUER_MASS = 2 * STANDARD_LARVA_MASS # ~456 ng
-DAUER_THRESHOLD = 0.05 # Concentration (mg/mL) that scales probability of dauering. = 250,000 ng total food available
-DAUER_RATE = 2 # Number of days at a concentration of 0 food for a larva to have a 50% chance of dauering/starving
-DAUER_EXIT_PROB = 3.24e-5 # Chance per timestep to exit dauer, based on empirical data
+# Larva constants
+STANDARD_LARVA_MASS = data['STANDARD_LARVA_MASS']  # ~228 ng
+LARVAL_STARVE_PROB = data['LARVAL_STARVE_PROB']  # Chance to cheat death by starvation, though starvation is probabilistic
 
-BAG_THRESHOLD = 5e-3 # mg/mL (=2500 ng)
-BAG_RATE = 2 # See dauer rate
-BAG_EFFICIENCY = 2/3 # Efficiency with which somatic mass of parlads can be converted to dauers
+# Dauer constants
+MIN_DAUER_MASS = data['MIN_DAUER_MASS']  # ~137 ng
+MAX_DAUER_MASS = data['MAX_DAUER_MASS']  # ~456 ng
+DAUER_THRESHOLD = data['DAUER_THRESHOLD']  # Concentration (mg/mL) that scales probability of dauering = 250,000 ng total food available
+DAUER_RATE = data['DAUER_RATE']  # Number of days at 0 food concentration for a larva to have a 50% chance of dauering/starving
+DAUER_EXIT_PROB = data['DAUER_EXIT_PROB']  # Chance per timestep to exit dauer, based on empirical data
 
-STARTING_FOOD = 1e7 # 10 mg = 1x10^7 ng
-FEEDING_AMOUNT = 1e7 # 10 mg added per feeding schedule
+# Bag constants
+BAG_THRESHOLD = data['BAG_THRESHOLD']  # mg/mL (=2500 ng)
+BAG_RATE = data['BAG_RATE']
+BAG_EFFICIENCY = data['BAG_EFFICIENCY']  # Efficiency with which somatic mass of parlads can be converted to dauers
 
-FEEDING_SCHEDULE = 24 # Frequency of adding food (default = 24 hr)
-CULLING_SCHEDULE = 24 # Frequency of culling (default = 24 hr)
-PERCENT_CULL = 10 # Percent of "media" culled at each culling inverval
+# Food constants
+STARTING_FOOD = data['STARTING_FOOD']  # 10 mg = 1x10^7 ng
+FEEDING_AMOUNT = data['FEEDING_AMOUNT']  # 10 mg added per feeding schedule
 
-COST_OF_LIVING = 3.5 / 100 # Percent biomass consumed per timestep through metabolism
-METABOLIC_EFFICIENCY = 85 / 100 # Percent food converted to worm or egg mass after consumption
+# Scheduling constants
+FEEDING_SCHEDULE = data['FEEDING_SCHEDULE']  # Frequency of adding food (default = 24 hr)
+CULLING_SCHEDULE = data['CULLING_SCHEDULE']  # Frequency of culling (default = 24 hr)
+PERCENT_CULL = data['PERCENT_CULL']  # Percent of "media" culled at each culling interval
+
+# Metabolic constants
+COST_OF_LIVING = data['COST_OF_LIVING']  # Percent biomass consumed per timestep through metabolism
+METABOLIC_EFFICIENCY = data['METABOLIC_EFFICIENCY']  # Percent food converted to worm or egg mass after consumption
+
+# Culling percentages for each stage
+EGG_CULL_PERCENT = data['EGG_CULL_PERCENT']
+LARVA_CULL_PERCENT = data['LARVA_CULL_PERCENT']
+DAUER_CULL_PERCENT = data['DAUER_CULL_PERCENT']
+ADULT_CULL_PERCENT = data['ADULT_CULL_PERCENT']
+PARLAD_CULL_PERCENT = data['PARLAD_CULL_PERCENT']
+
+# You can now use these constants in your simulation code
+
 
 # Constants for logistic growth formula:
 Kr = 1.78027908103543
@@ -106,7 +139,7 @@ class Simulation:
 
 
     """
-    def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False):
+    def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None):
         self.worms = Worms()
         self.worms.initialize_worms(number_worms, starting_stage)
         self.dead = Dead_worms()
@@ -118,7 +151,7 @@ class Simulation:
         self.time = 0
         self.length = length
         self.report_individuals = report_individuals
-
+        self.connection = connection
     
     def iterate_once(self):
         """Meat and potatoes algorithm of the simulation.
@@ -198,27 +231,72 @@ class Simulation:
 
         # Individual reporting:
 
-        
-        if self.report_individuals:
-            attributes = ['name', 'age', 'stage', 'mass', 'current_egg_progress', 'eggs_laid', 'sensed_food', 'appetite','growth_mass', 
-                        'desired_egg_mass', 'actual_egg_mass', 'maintenance', 'portion', 'p_starve', 'p_awaken', 'p_death', 'note']
+        attributes = [
+            'name', 'age', 'stage', 'mass', 'current_egg_progress', 'eggs_laid', 
+            'sensed_food', 'appetite', 'growth_mass', 'desired_egg_mass', 
+            'actual_egg_mass', 'maintenance', 'portion', 'p_starve', 
+            'p_awaken', 'p_death', 'note'
+        ]
 
+        # Create the table if it doesn't exist
+        create_table_sql = '''
+        CREATE TABLE IF NOT EXISTS worms (
+            Worm_Name TEXT,
+            Timestep INTEGER, 
+            Age_hours REAL,
+            Stage TEXT,
+            Mass REAL,
+            Egg_Mass REAL,
+            Eggs_Laid INTEGER,
+            Available_Food REAL,
+            Total_Appetite REAL,
+            Desired_Growth REAL,
+            Desired_Eggs REAL,
+            Actual_Egg_Investment REAL,
+            Metabolic_Cost REAL,
+            Amount_Eaten REAL,
+            Chance_of_Starvation REAL,
+            Chance_of_Dauer_Awakening REAL,
+            Chance_of_Death REAL,
+            Notes TEXT
+        )
+        '''       
+        if self.report_individuals:
+          
+            cursor = self.connection.cursor()
+            cursor.execute(create_table_sql)
+
+            # Insert data into the table
             for w in self.worms:
-                indpath = self.individual_path / (w.name + '.tsv')
-                if not indpath.exists():
-                    with open(indpath, 'w') as file:
-                        file.write('\t'.join(['Worm Name','Age (hours)', 'Stage','Mass','Egg Mass','Eggs Laid','Available Food','Total Appetite','Desired Growth','Desired Eggs',
-                        'Actual Egg Investment','Metabolic Cost','Amount Eaten','Chance of Starvation','Chance of Dauer Awakening','Chance of Death','Notes'])+'\n')
-                    w.note = 'Born at timestep {}'.format(self.timestep)
-                    for a in attributes:
-                        if not hasattr(w, a): setattr(w,a,'')
+                w.note = 'Born at timestep {}'.format(self.timestep) if not hasattr(w, 'note') else w.note
+
+                for a in attributes:
+                    if not hasattr(w, a):
+                        setattr(w, a, '')
 
                 reportlist = [getattr(w, a) for a in attributes]
-            
-                with open(indpath,'a+') as file:
-                    file.write('\t'.join(map(str, reportlist)) + '\n')
+
+                # Adding current timestep before the rest of the reportlist attributes
+                insert_data = [w.name, self.timestep] + reportlist[1:]
+
+                insert_sql = '''
+                INSERT INTO worms (
+                    Worm_Name, Timestep, Age_hours, Stage, Mass, Egg_Mass, Eggs_Laid, 
+                    Available_Food, Total_Appetite, Desired_Growth, Desired_Eggs, 
+                    Actual_Egg_Investment, Metabolic_Cost, Amount_Eaten, 
+                    Chance_of_Starvation, Chance_of_Dauer_Awakening, 
+                    Chance_of_Death, Notes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                '''
+                cursor.execute(insert_sql, insert_data)
                 w.note = ''
-        
+            
+            
+            if self.timestep % 10 == 0:
+                self.connection.commit()
+            
+
         self.dead.extend([w for w in self.worms if w.stage == 'dead'])
         self.worms[:] = [w for w in self.worms if w.stage != 'dead']
 
@@ -1070,13 +1148,20 @@ class Dead(Worm):
 
 #%%
 
-Egg.CULL_PERCENT = 10
-Larva.CULL_PERCENT = 10
-Dauer.CULL_PERCENT = 10
-Adult.CULL_PERCENT = 10
-Parlad.CULL_PERCENT = 10
 
 
 
-test = Simulation('speedtest')
-test.run()
+Egg.CULL_PERCENT = EGG_CULL_PERCENT
+Larva.CULL_PERCENT = LARVA_CULL_PERCENT
+Dauer.CULL_PERCENT = DAUER_CULL_PERCENT
+Adult.CULL_PERCENT = ADULT_CULL_PERCENT
+Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
+
+
+if args["--database"]:
+    with sqlite3.connect(args["--database"]) as conn:
+        test = Simulation('speedtest', connection=conn, report_individuals=True)
+        test.run()
+else:
+    test = Simulation('speedtest')
+    test.run()
