@@ -152,6 +152,7 @@ class Simulation:
         self.length = length
         self.report_individuals = report_individuals
         self.connection = connection
+        self.bulk_data = []
     
     def iterate_once(self):
         """Meat and potatoes algorithm of the simulation.
@@ -266,7 +267,7 @@ class Simulation:
             cursor = self.connection.cursor()
             cursor.execute(create_table_sql)
 
-            # Insert data into the table
+        
             for w in self.worms:
                 w.note = 'Born at timestep {}'.format(self.timestep) if not hasattr(w, 'note') else w.note
 
@@ -277,8 +278,11 @@ class Simulation:
                 reportlist = [getattr(w, a) for a in attributes]
 
                 # Adding current timestep before the rest of the reportlist attributes
-                insert_data = [w.name, self.timestep] + reportlist[1:]
+                data_to_insert = [w.name, self.timestep] + reportlist[1:]
+                self.bulk_data.append(data_to_insert)
+                w.note = ''
 
+            if self.timestep % 10 == 0:
                 insert_sql = '''
                 INSERT INTO worms (
                     Worm_Name, Timestep, Age_hours, Stage, Mass, Egg_Mass, Eggs_Laid, 
@@ -289,13 +293,10 @@ class Simulation:
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 '''
-                cursor.execute(insert_sql, insert_data)
-                w.note = ''
-            
-            
-            if self.timestep % 10 == 0:
+                cursor.executemany(insert_sql, self.bulk_data)
+                self.bulk_data.clear()  # Clear the data list after inserting
                 self.connection.commit()
-            
+                        
 
         self.dead.extend([w for w in self.worms if w.stage == 'dead'])
         self.worms[:] = [w for w in self.worms if w.stage != 'dead']
