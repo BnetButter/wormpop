@@ -68,3 +68,23 @@ Linux:
     If you wish to cancel the simulation early
 
         Ctrl + Z
+---------------------------------------------------------------------------------------------------------
+How to use the constants.json commandline argument for the simulation:
+
+    python3 wormpop.py --parameters=constants.json
+
+    OR
+
+    python3 wormpop.py < constants.json
+
+        All simulation parameters are set to the defaults in constants.json
+
+    Full commandline argument
+
+        python3 wormpop.py [--parameters=<string>] [--database=<string>] [--name=<string>] [--directory=<string>]
+
+            --database specifies the name of the SQLITE database to use. By default, this is :memory:, so it writes to a in memory sqlite3 database
+
+            --name allows you to store the name of the simulation run. By default the value is "Simulation". The name is stored in the sqlite3 database. This is used mostly for metadata purposes
+
+            --directory specifies the output of the TSV file
