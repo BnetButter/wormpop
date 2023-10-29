@@ -3,7 +3,7 @@
 #%%
 
 """
-USAGE: wormpop <parameters.json> [ --database=<string> ]
+USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>]
 """
 
 import pathlib
@@ -14,68 +14,75 @@ import csv
 import json
 import docopt
 import sqlite3
+import sys
 
 args = docopt.docopt(__doc__)
-parameters = args["<parameters.json>"]
-database = args["--database"]
+parameters = args["--parameters"]
+database = args["--database"] if args["--database"] is not None else ":memory:"
+name = args["--name"] if args["--name"] is not None else "Simulation"
+directory = args["--directory"] if args["--directory"] is not None else "."
 
 # Constants:
 
 import json
 
 # Read the JSON file
-with open(parameters, 'r') as file:
-    data = json.load(file)
+
+if parameters:
+    with open(parameters, 'r') as file:
+        param = json.load(file)
+else:
+    param = json.load(sys.stdin)
 
 # Simulation time details
-SIMULATION_LENGTH = data['SIMULATION_LENGTH']  # 800 timesteps = 100 days
-TIMESTEP = data['TIMESTEP']  # 3 hr per timestep, 8 timesteps per day
+SIMULATION_LENGTH = param['SIMULATION_LENGTH']  # 800 timesteps = 100 days
+TIMESTEP = param['TIMESTEP']  # 3 hr per timestep, 8 timesteps per day
 
 # Initial conditions
-STARTING_WORMS = data['STARTING_WORMS']
-STARTING_STAGE = data['STARTING_STAGE']  # 'egg'
-EGGMASS = data['EGGMASS']  # Nanograms
+STARTING_WORMS = param['STARTING_WORMS']
+STARTING_STAGE = param['STARTING_STAGE']  # 'egg'
+EGGMASS = param['EGGMASS']  # Nanograms
 
 # Adult constants
-MIN_ADULT_MASS = data['MIN_ADULT_MASS']  # ng
-MIN_ADULT_AGE = data['MIN_ADULT_AGE']  # Minimum age in hours to transition to adult
-MAX_ADULT_AGE = data['MAX_ADULT_AGE']  # Max age in hours to transition (larvae past this age die of "arrested development")
+MIN_ADULT_MASS = param['MIN_ADULT_MASS']  # ng
+MIN_ADULT_AGE = param['MIN_ADULT_AGE']  # Minimum age in hours to transition to adult
+MAX_ADULT_AGE = param['MAX_ADULT_AGE']  # Max age in hours to transition (larvae past this age die of "arrested development")
 
 # Larva constants
-STANDARD_LARVA_MASS = data['STANDARD_LARVA_MASS']  # ~228 ng
-LARVAL_STARVE_PROB = data['LARVAL_STARVE_PROB']  # Chance to cheat death by starvation, though starvation is probabilistic
+STANDARD_LARVA_MASS = param['STANDARD_LARVA_MASS']  # ~228 ng
+LARVAL_STARVE_PROB = param['LARVAL_STARVE_PROB']  # Chance to cheat death by starvation, though starvation is probabilistic
 
 # Dauer constants
-MIN_DAUER_MASS = data['MIN_DAUER_MASS']  # ~137 ng
-MAX_DAUER_MASS = data['MAX_DAUER_MASS']  # ~456 ng
-DAUER_THRESHOLD = data['DAUER_THRESHOLD']  # Concentration (mg/mL) that scales probability of dauering = 250,000 ng total food available
-DAUER_RATE = data['DAUER_RATE']  # Number of days at 0 food concentration for a larva to have a 50% chance of dauering/starving
-DAUER_EXIT_PROB = data['DAUER_EXIT_PROB']  # Chance per timestep to exit dauer, based on empirical data
+MIN_DAUER_MASS = param['MIN_DAUER_MASS']  # ~137 ng
+MAX_DAUER_MASS = param['MAX_DAUER_MASS']  # ~456 ng
+DAUER_THRESHOLD = param['DAUER_THRESHOLD']  # Concentration (mg/mL) that scales probability of dauering = 250,000 ng total food available
+DAUER_RATE = param['DAUER_RATE']  # Number of days at 0 food concentration for a larva to have a 50% chance of dauering/starving
+DAUER_EXIT_PROB = param['DAUER_EXIT_PROB']  # Chance per timestep to exit dauer, based on empirical data
 
 # Bag constants
-BAG_THRESHOLD = data['BAG_THRESHOLD']  # mg/mL (=2500 ng)
-BAG_RATE = data['BAG_RATE']
-BAG_EFFICIENCY = data['BAG_EFFICIENCY']  # Efficiency with which somatic mass of parlads can be converted to dauers
+BAG_THRESHOLD = param['BAG_THRESHOLD']  # mg/mL (=2500 ng)
+BAG_RATE = param['BAG_RATE']
+BAG_EFFICIENCY = param['BAG_EFFICIENCY']  # Efficiency with which somatic mass of parlads can be converted to dauers
 
 # Food constants
-STARTING_FOOD = data['STARTING_FOOD']  # 10 mg = 1x10^7 ng
-FEEDING_AMOUNT = data['FEEDING_AMOUNT']  # 10 mg added per feeding schedule
+STARTING_FOOD = param['STARTING_FOOD']  # 10 mg = 1x10^7 ng
+FEEDING_AMOUNT = param['FEEDING_AMOUNT']  # 10 mg added per feeding schedule
 
 # Scheduling constants
-FEEDING_SCHEDULE = data['FEEDING_SCHEDULE']  # Frequency of adding food (default = 24 hr)
-CULLING_SCHEDULE = data['CULLING_SCHEDULE']  # Frequency of culling (default = 24 hr)
-PERCENT_CULL = data['PERCENT_CULL']  # Percent of "media" culled at each culling interval
+FEEDING_SCHEDULE = param['FEEDING_SCHEDULE']  # Frequency of adding food (default = 24 hr)
+CULLING_SCHEDULE = param['CULLING_SCHEDULE']  # Frequency of culling (default = 24 hr)
+PERCENT_CULL = param['PERCENT_CULL']  # Percent of "media" culled at each culling interval
 
 # Metabolic constants
-COST_OF_LIVING = data['COST_OF_LIVING']  # Percent biomass consumed per timestep through metabolism
-METABOLIC_EFFICIENCY = data['METABOLIC_EFFICIENCY']  # Percent food converted to worm or egg mass after consumption
+COST_OF_LIVING = param['COST_OF_LIVING']  # Percent biomass consumed per timestep through metabolism
+METABOLIC_EFFICIENCY = param['METABOLIC_EFFICIENCY']  # Percent food converted to worm or egg mass after consumption
 
 # Culling percentages for each stage
-EGG_CULL_PERCENT = data['EGG_CULL_PERCENT']
-LARVA_CULL_PERCENT = data['LARVA_CULL_PERCENT']
-DAUER_CULL_PERCENT = data['DAUER_CULL_PERCENT']
-ADULT_CULL_PERCENT = data['ADULT_CULL_PERCENT']
-PARLAD_CULL_PERCENT = data['PARLAD_CULL_PERCENT']
+EGG_CULL_PERCENT = param['EGG_CULL_PERCENT']
+LARVA_CULL_PERCENT = param['LARVA_CULL_PERCENT']
+DAUER_CULL_PERCENT = param['DAUER_CULL_PERCENT']
+ADULT_CULL_PERCENT = param['ADULT_CULL_PERCENT']
+PARLAD_CULL_PERCENT = param['PARLAD_CULL_PERCENT']
 
 # You can now use these constants in your simulation code
 
@@ -261,7 +268,7 @@ class Simulation:
             Chance_of_Death REAL,
             Notes TEXT
         )
-        '''       
+        '''
         if self.report_individuals:
           
             cursor = self.connection.cursor()
@@ -357,7 +364,7 @@ class Simulation:
         death_metrics = die_ind, die_mass = die_reporter()
 
         if header:
-            with open("stage_transitions.tsv", "w") as fp:
+            with open(self.stage_transition, "w") as fp:
                 writer = csv.writer(fp, delimiter="\t")
                 writer.writerow([
                     "Timestep",
@@ -367,7 +374,7 @@ class Simulation:
                     "adult_to_bag","adult_to_bag_mass",
                     "dauer_to_larva", "darva_to_larva_mass"])
             
-            with open("death_transitions.tsv", "w") as fp:
+            with open(self.death_transition, "w") as fp:
                 
                 writer = csv.writer(fp, delimiter="\t")
                 fields = ["Timestep"]
@@ -378,7 +385,7 @@ class Simulation:
                 writer.writerow(fields)
                     
                 
-        with open("stage_transitions.tsv", "a+") as fp:
+        with open(self.stage_transition, "a+") as fp:
             writer = csv.writer(fp, delimiter="\t")
             writer.writerow([self.timestep, 
                     egg_to_larva, egg_to_larva_mass,
@@ -388,7 +395,7 @@ class Simulation:
                     dauer_to_larva, dauer_to_larva_mass,
             ])
         
-        with open("death_transitions.tsv", "a+") as fp:
+        with open(self.death_transition, "a+") as fp:
             writer = csv.writer(fp, delimiter="\t")
             fields = [self.timestep]
             for _class, value in die_ind.items():
@@ -399,8 +406,6 @@ class Simulation:
 
             writer.writerow(fields)
                     
-        
-
 
     def run(self):
         """Run function
@@ -411,10 +416,15 @@ class Simulation:
         """
         self.path.mkdir(exist_ok=True)
         self.summary_path = self.path / 'summary.tsv'
-
+        self.death_transition = self.path / 'death_transitions.tsv'
+        self.stage_transition = self.path / 'stage_transitions.tsv'
+    
         if self.report_individuals:
             self.individual_path = self.path / 'indivduals'
             self.individual_path.mkdir(exist_ok=True)
+        
+        with open(self.path / 'parameters.json', "w") as fp:
+            json.dump(param, fp, indent=4)
 
         self.report(header=True) # Initial conditions/header for output file
 
@@ -856,7 +866,7 @@ class Dauer(Worm):
 
     Dauers don't eat or grow, maintaining the same mass as when they enter dauer.
     
-    In the previous model, dauers can eventually die of "attrition," which has an adjustable timescale, 
+    In the previous model, dauers can eventually die of "attrition," which has an adjustable timescale,
     if they never see enough nutrients to return to a larval state. This is not yet implemented here.
     
     Worms can only enter dauer once.
@@ -942,9 +952,8 @@ class Adult(Worm):
         Same as in larvae. See above for docstring.
 
         """
-       
-        if food_conc > 0:
 
+        if food_conc > 0:
             dt = TIMESTEP / 24 # dt = timestep length in days
 
             K = Kr * math.tanh(Ks * food_conc)
@@ -1159,10 +1168,20 @@ Adult.CULL_PERCENT = ADULT_CULL_PERCENT
 Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
 
+import datetime
+
 if args["--database"]:
     with sqlite3.connect(args["--database"]) as conn:
-        test = Simulation('speedtest', connection=conn, report_individuals=True)
+        conn.execute('''CREATE TABLE IF NOT EXISTS Metadata
+                    (name TEXT, start_time TEXT, parameter TEXT, status TEXT, error TEXT)''')
+        # Inserting values into the Metadata table
+        name = 'speedtest'
+        start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        conn.execute('INSERT INTO Metadata (name, start_time, parameter) VALUES (?, ?, ?)', (name, start_time, json.dumps(param)))
+        # Committing the transaction
+        conn.commit()
+        test = Simulation(directory, connection=conn, report_individuals=True)
         test.run()
 else:
-    test = Simulation('speedtest')
+    test = Simulation(directory)
     test.run()
