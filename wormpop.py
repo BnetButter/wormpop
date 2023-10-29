@@ -3,7 +3,7 @@
 #%%
 
 """
-USAGE: wormpop <parameters.json> [ --database=<string> ] [ --name=<string> ] [--directory=<string>]
+USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>]
 """
 
 import pathlib
@@ -14,9 +14,10 @@ import csv
 import json
 import docopt
 import sqlite3
+import sys
 
 args = docopt.docopt(__doc__)
-parameters = args["<parameters.json>"]
+parameters = args["--parameters"]
 database = args["--database"] if args["--database"] is not None else ":memory:"
 name = args["--name"] if args["--name"] is not None else "Simulation"
 directory = args["--directory"] if args["--directory"] is not None else "."
@@ -26,8 +27,12 @@ directory = args["--directory"] if args["--directory"] is not None else "."
 import json
 
 # Read the JSON file
-with open(parameters, 'r') as file:
-    param = json.load(file)
+
+if parameters:
+    with open(parameters, 'r') as file:
+        param = json.load(file)
+else:
+    param = json.load(sys.stdin)
 
 # Simulation time details
 SIMULATION_LENGTH = param['SIMULATION_LENGTH']  # 800 timesteps = 100 days
@@ -417,6 +422,9 @@ class Simulation:
         if self.report_individuals:
             self.individual_path = self.path / 'indivduals'
             self.individual_path.mkdir(exist_ok=True)
+        
+        with open(self.path / 'parameters.json', "w") as fp:
+            json.dump(param, fp, indent=4)
 
         self.report(header=True) # Initial conditions/header for output file
 
@@ -858,7 +866,7 @@ class Dauer(Worm):
 
     Dauers don't eat or grow, maintaining the same mass as when they enter dauer.
     
-    In the previous model, dauers can eventually die of "attrition," which has an adjustable timescale, 
+    In the previous model, dauers can eventually die of "attrition," which has an adjustable timescale,
     if they never see enough nutrients to return to a larval state. This is not yet implemented here.
     
     Worms can only enter dauer once.
@@ -944,9 +952,8 @@ class Adult(Worm):
         Same as in larvae. See above for docstring.
 
         """
-       
-        if food_conc > 0:
 
+        if food_conc > 0:
             dt = TIMESTEP / 24 # dt = timestep length in days
 
             K = Kr * math.tanh(Ks * food_conc)
@@ -1166,7 +1173,7 @@ import datetime
 if args["--database"]:
     with sqlite3.connect(args["--database"]) as conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS Metadata
-                    (name TEXT, start_time TEXT, parameter TEXT)''')
+                    (name TEXT, start_time TEXT, parameter TEXT, status TEXT, error TEXT)''')
         # Inserting values into the Metadata table
         name = 'speedtest'
         start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
