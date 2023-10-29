@@ -20,7 +20,7 @@ args = docopt.docopt(__doc__)
 parameters = args["--parameters"]
 database = args["--database"] if args["--database"] is not None else ":memory:"
 name = args["--name"] if args["--name"] is not None else "Simulation"
-directory = args["--directory"] if args["--directory"] is not None else "."
+directory = args["--directory"] if args["--directory"] is not None else "Simulation"
 
 # Constants:
 
