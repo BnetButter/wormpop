@@ -4,9 +4,25 @@ Windows:
 
     Type "cmd" or "PowerShell" and press Enter to open the Command Prompt or PowerShell.
 
-    Use the ‘cd’ command to navigate to the directory where your wormpop.py script is located. For example, if your script is in C:\Example\Directory\Path, you can use the following command in Command Prompt:
+    Use the ‘cd’ command to navigate to the directory where your wormpop.py script is located. For example, if your script is in C:\Example\Directory\Path, you can use the following commands in Command Prompt:
 
-            cd C:\Example\Directory\Path
+        To move through all directory paths at once:
+
+            cd Example\Directory\Path
+
+        To move through one directory at a time:
+
+            cd Example
+
+            cd Directory
+
+            cd Path
+
+       (You can also look inside the directory you are currently in to see what is inside it and what the next directory path you have to navigate to is called with the "ls" command)
+
+       If you wish to go back a directory:
+
+           cd ..
 
     You can use a text editor like Notepad or a code editor like Visual Studio Code to open wormpop.py. For example, to open it with Notepad, you can run the following command in Command Prompt:
 
@@ -22,7 +38,9 @@ Windows:
 
         Use your text editor to locate the last line of code and check if the lines "test = Simulation ('speed test')" and "test.run()" are commented out (prefixed with a #). If they are, simply delete the # to uncomment them.
 
-        You can modify constants, all UPPERCASE variable below “# constants”,  in the code as needed but remember to note the original values and change them back when you're done running your simulations.
+        Please refer to the "How to use the constants.json commandline argument for the simulation" section of the guide for simulation constant modification.
+
+            Make sure to note the original values of the constants before changing them so that they can be changed back later.
 
         Save your changes by pressing “Ctrl + S”
 
@@ -35,9 +53,19 @@ Linux:
 
     Open the Linux terminal
 
-    Navigate to the directory that contains wormpop.py
+    To move through all directory paths at once: 
 
-        cd Example/Directory/Path/)
+        cd Example\Directory\Path
+
+    To move through one directory at a time:
+
+        cd Example
+
+        cd Directory
+
+        cd Path
+
+    (You can also look inside the directory you are currently in to see what is inside it and what the next directory path you have to navigate to is called with the "ls" command)
 
     If you wish to go back a directory
 
@@ -51,9 +79,7 @@ Linux:
 
         If so, delete the "#" to uncomment them so that the simulation can run.
 
-    Modify and constants at the top of the code to test certain changes to constants in the simulation environment.
-
-        The constants are at the top of the code and are usually in all capital letters.
+    Please refer to the "How to use the constants.json commandline argument for the simulation" section of the guide for simulation constant modification.
 
         Make sure to note the original values of the constants before changing them so that they can be changed back later.
 
@@ -88,3 +114,22 @@ How to use the constants.json commandline argument for the simulation:
             --name allows you to store the name of the simulation run. By default the value is "Simulation". The name is stored in the sqlite3 database. This is used mostly for metadata purposes
 
             --directory specifies the output of the TSV file
+
+    To modify constant values in the constants.json file:
+
+        Windows:
+
+            notepad constants.json
+
+            Modify any constant values you wish to have ran differently in the simulation
+
+            Ctrl + S to save the modified code
+
+        Linux:
+
+            nano constants.json
+
+            Modify any constant values you wish to have ran differently in the simulation
+
+            Close the modified file with Ctrl + X | When asked "Save modified buffer" hit Y for yes or N for no
+
