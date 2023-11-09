@@ -18,7 +18,7 @@ Windows:
 
             cd Path
 
-       (You can also look inside the directory you are currently in to see what is inside it and what the next directory path you have to navigate to is called with the "ls" command)
+       (You can also look inside the directory you are currently in to see what is inside it and what the next directory path you have to navigate to is called with the "ls" or "dir" command)
 
        If you wish to go back a directory:
 
