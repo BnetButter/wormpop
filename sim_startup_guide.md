@@ -1,3 +1,20 @@
+First Time Program and Python Setup on Windows:
+
+    Open Windows terminal
+
+    Type "python" to open up the microsoft store and click the "Get" button on the Python page to install Python for terminal usage
+
+    Go to the directory that contains the OURE simulation (Refer to the Windows section of the startup guide if you do not know the commands for navigating directories inside of terminal)
+
+    Type "python3 wormpop.py --parameters=constants.json" to attempt to run the program
+
+    You should then be told by the terminal that you lack some of the modules used in the simulation
+
+    Use the command "pip3 install NameOfTheModule" to install the module needed through terminal. Repeat this process until the terminal stops telling you that you are missing a module
+
+    Once all of the modules it asks for are installed using the above method, the program should be able to run on your profile
+
+-------------------------------------------------------------------------------------------------------
 Windows:
 
     Press the Windows key.
@@ -32,7 +49,11 @@ Windows:
 
     To run the simulation on a python file, you need to run the following command in Command prompt:
 
-            python3 wormpop.py
+            python3 wormpop.py 
+
+            or
+
+            py wormpop.py
 
     Check and uncomment the code:
 
