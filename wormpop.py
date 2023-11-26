@@ -15,6 +15,7 @@ import json
 import docopt
 import sqlite3
 import sys
+import collections
 
 args = docopt.docopt(__doc__)
 parameters = args["--parameters"]
@@ -130,6 +131,14 @@ def CreateCounter():
     return wrapper, reporter
 
 
+from collections import namedtuple
+
+Genome = namedtuple("Genome", [
+    "variant", 
+    "appetite",
+])
+
+
 
 class Simulation:
     """Totality of the environment
@@ -144,8 +153,10 @@ class Simulation:
     > simulation = wormpop.Simulation(output_location='output') # create simulation object and tell it to place outputs in the directory 'output' in the current working directory
     > simulation.run() # Run simulation with default number of timesteps
 
-
     """
+
+    variants = []
+
     def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None):
         self.worms = Worms()
         self.worms.initialize_worms(number_worms, starting_stage)
@@ -160,6 +171,12 @@ class Simulation:
         self.report_individuals = report_individuals
         self.connection = connection
         self.bulk_data = []
+
+        self.variants = []
+    
+    @classmethod
+    def add_variant(cls, genome: Genome):
+        cls.variants.append(genome)
     
     def iterate_once(self):
         """Meat and potatoes algorithm of the simulation.
@@ -383,7 +400,12 @@ class Simulation:
                         for metric in [ "ind", "mass" ]:
                             fields.append(f"{_class}-{cause_of_death}-{metric}")
                 writer.writerow(fields)
-                    
+        
+            with open(self.variant_count, "w") as fp:
+                writer = csv.writer(fp, delimiter="\t")
+                fields = [ variant.variant for variant in Simulation.variants ]
+                writer.writerow(fields)
+
                 
         with open(self.stage_transition, "a+") as fp:
             writer = csv.writer(fp, delimiter="\t")
@@ -403,9 +425,19 @@ class Simulation:
                     for i, _ in enumerate([ "ind", "mass" ]):
                         metric = death_metrics[i]
                         fields.append(metric[_class][cause_of_death])
-
             writer.writerow(fields)
-                    
+        
+
+        counter = collections.defaultdict(int)
+        for w in self.worms:
+            counter[w.genome.variant] += 1
+        
+
+        with open(self.variant_count, "a+") as fp:
+            writer = csv.writer(fp, delimiter="\t")
+            data = [ counter[variant.variant] for variant in Simulation.variants ]
+            writer.writerow(data)
+
 
     def run(self):
         """Run function
@@ -418,6 +450,7 @@ class Simulation:
         self.summary_path = self.path / 'summary.tsv'
         self.death_transition = self.path / 'death_transitions.tsv'
         self.stage_transition = self.path / 'stage_transitions.tsv'
+        self.variant_count = self.path / "variant_count.tsv"
     
         if self.report_individuals:
             self.individual_path = self.path / 'indivduals'
@@ -641,14 +674,22 @@ class Worm:
 
     TODO add reporting for individual worms
     TODO add counter for number of transitions called to get wt rates as in previous model
-
     """
 
     CULL_PERCENT = 10
 
+ 
+
     def __init__(self, name):
         self.name = name
-    
+
+
+        # self.genome = random.sample([NormalAppetite, FatWorm, SkinnyWorm])
+
+        choices = Simulation.variants
+
+        self.genome = choices[random.randint(0, len(choices))]
+
     def cull_maybe(self):
         roll = random.rand()
         if roll <= self.CULL_PERCENT / 100:
@@ -776,7 +817,7 @@ class Larva(Worm):
             self.growth_mass = 0
 
     def eat(self, amount):
-        self.mass += amount * METABOLIC_EFFICIENCY
+        self.mass += amount * METABOLIC_EFFICIENCY * self.genome.appetite
 
     #@profile
     def make_checks(self, current_food, prev_food):
@@ -1167,6 +1208,12 @@ Dauer.CULL_PERCENT = DAUER_CULL_PERCENT
 Adult.CULL_PERCENT = ADULT_CULL_PERCENT
 Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
+
+Simulation.variants += [
+    Genome("NormalAppetite", 1),
+    Genome("FatWorm", 1.5),
+    Genome("SkinnyWorm", 0.5),
+]
 
 import datetime
 
