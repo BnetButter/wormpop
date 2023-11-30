@@ -15,6 +15,21 @@ First Time Program and Python Setup on Windows:
     Once all of the modules it asks for are installed using the above method, the program should be able to run on your profile
 
 -------------------------------------------------------------------------------------------------------
+How to install and use the sqlitebrowser to make the database easily viewable:
+
+        Go to the url "https://sqlitebrowser.org/dl/"
+
+        Click on the download link under the Windows portion called "DB Browser for SQLite - Standard installer for 64-bit Windows"
+
+        Go through the installation process
+
+        Open the program once it is installed and click the "Open Database" option on the interface
+
+        Navigate to the file that contains the database for the simulation and open it
+
+        The database should now be viewable in an organized fashion
+
+-------------------------------------------------------------------------------------------------------
 Windows:
 
     Press the Windows key.
@@ -55,16 +70,6 @@ Windows:
 
             py wormpop.py
 
-    Check and uncomment the code:
-
-        Use your text editor to locate the last line of code and check if the lines "test = Simulation ('speed test')" and "test.run()" are commented out (prefixed with a #). If they are, simply delete the # to uncomment them.
-
-        Please refer to the "How to use the constants.json commandline argument for the simulation" section of the guide for simulation constant modification.
-
-            Make sure to note the original values of the constants before changing them so that they can be changed back later.
-
-        Save your changes by pressing “Ctrl + S”
-
     End the simulation:
 
         Press “Ctrl + C” to stop the simulation
@@ -95,10 +100,6 @@ Linux:
     Open wormpop.py
 
         nano wormpop.py
-
-    Go to the last lines of code and check to see if "test = Simulation('speedtest')" and "test.run()" are commented out. (A "#" before them signifies that they are commented out.)
-
-        If so, delete the "#" to uncomment them so that the simulation can run.
 
     Please refer to the "How to use the constants.json commandline argument for the simulation" section of the guide for simulation constant modification.
 
@@ -136,7 +137,7 @@ How to use the constants.json commandline argument for the simulation:
 
             --directory specifies the output of the TSV file
 
-    To modify constant values in the constants.json file:
+    To modify constant values in the constants.json file (Take note of which constants you modify and their original values so that you can change them back after you are finished running the modified simulation):
 
         Windows:
 
@@ -153,4 +154,3 @@ How to use the constants.json commandline argument for the simulation:
             Modify any constant values you wish to have ran differently in the simulation
 
             Close the modified file with Ctrl + X | When asked "Save modified buffer" hit Y for yes or N for no
-
