@@ -2,3 +2,4 @@
 *.png
 *.db
 simulation
+Simulation/parameters.json
