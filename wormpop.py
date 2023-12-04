@@ -16,6 +16,7 @@ import docopt
 import sqlite3
 import sys
 import collections
+import functools
 
 args = docopt.docopt(__doc__)
 parameters = args["--parameters"]
@@ -136,6 +137,7 @@ from collections import namedtuple
 Genome = namedtuple("Genome", [
     "variant", 
     "appetite",
+    "egg_efficiency"
 ])
 
 
@@ -680,15 +682,16 @@ class Worm:
 
  
 
-    def __init__(self, name):
+    def __init__(self, name, genome=None):
         self.name = name
-
 
         # self.genome = random.sample([NormalAppetite, FatWorm, SkinnyWorm])
 
         choices = Simulation.variants
 
-        self.genome = choices[random.randint(0, len(choices))]
+        if not hasattr(self, "genome"):
+            self.genome = genome if genome else choices[random.randint(0, len(choices))]
+
 
     def cull_maybe(self):
         roll = random.rand()
@@ -731,13 +734,14 @@ class Egg(Worm):
     Eggs are set at a mass of 65 ng by default and hatch after 15 hours (5 timesteps)
     
     """
-    def __init__(self, name):
+    def __init__(self, name, *args, **kwargs):
+        super().__init__(name, *args, **kwargs)
         self.mass = EGGMASS
         self.stage = 'egg'
         self.age = 0
         self.eggs_laid = 0
         self.egg_age = 0 # Eggs hatch after 15 hours, and larvae are born at age 0
-        super(Egg, self).__init__(name)
+      
 
     def ageup(self):
         self.egg_age += TIMESTEP
@@ -767,7 +771,7 @@ class Larva(Worm):
     a set time and if in a specific mass range.
 
     """
-    def __init__(self, name):
+    def __init__(self, name, *args, **kwargs):
         self.stage = 'larva'
         self.can_dauer = False
         self.eggs_laid = 0
@@ -964,8 +968,8 @@ class Adult(Worm):
 
     TODO Fertility span
     TODO Apportion of somatic vs germ mass - fixed value or just based on growth and egg-laying curves?
-
     """
+
     def __init__(self, name):
         self.stage = 'adult'
         self.adult_age = 0
@@ -1103,7 +1107,7 @@ class Adult(Worm):
 
         eggs = []
 
-        eggs_available = self.total_egg_mass // EGGMASS
+        eggs_available = self.total_egg_mass // EGGMASS * self.genome.egg_efficiency 
         self.current_egg_progress = self.total_egg_mass - (self.eggs_laid * EGGMASS)
 
         if eggs_available > self.eggs_laid: # Check if enough egg mass has been added to lay a new egg
@@ -1125,7 +1129,10 @@ class Adult(Worm):
 
     def lay_egg(self, number):
         self.eggs_laid += number
-        return [Egg] * int(number)
+
+        Egg_partial = functools.partial(Egg, genome=self.genome)
+
+        return [Egg_partial] * int(number)
 
     @AdultToBagSet
     def bag(self):
@@ -1199,7 +1206,9 @@ class Dead(Worm):
 
 #%%
 
-
+# TODO - Change Egg Mass efficiency
+# TODO - Change Life Span
+# TODO - Parameterize the genome
 
 
 Egg.CULL_PERCENT = EGG_CULL_PERCENT
@@ -1210,9 +1219,12 @@ Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
 
 Simulation.variants += [
-    Genome("NormalAppetite", 1),
-    Genome("FatWorm", 1.5),
-    Genome("SkinnyWorm", 0.5),
+    Genome("NormalAppetite", 1, 1),
+    Genome("FatWorm", 1.5, 1),
+    Genome("SkinnyWorm", 0.5, 1),
+    Genome("NormalEgg", 1, 1),
+    Genome("BadEgg", 1, 0),
+    Genome("GoodEgg", 1, 2)
 ]
 
 import datetime
