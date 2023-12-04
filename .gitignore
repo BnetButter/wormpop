@@ -3,3 +3,4 @@
 *.db
 simulation
 Simulation/parameters.json
+plots/*

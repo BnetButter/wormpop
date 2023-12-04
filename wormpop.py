@@ -137,7 +137,8 @@ from collections import namedtuple
 Genome = namedtuple("Genome", [
     "variant", 
     "appetite",
-    "egg_efficiency"
+    "egg_efficiency",
+    "life_span"
 ])
 
 
@@ -684,6 +685,7 @@ class Worm:
 
     def __init__(self, name, genome=None):
         self.name = name
+        self._eggs_laid = 0
 
         # self.genome = random.sample([NormalAppetite, FatWorm, SkinnyWorm])
 
@@ -691,7 +693,6 @@ class Worm:
 
         if not hasattr(self, "genome"):
             self.genome = genome if genome else choices[random.randint(0, len(choices))]
-
 
     def cull_maybe(self):
         roll = random.rand()
@@ -789,6 +790,7 @@ class Larva(Worm):
 
     def tax(self):
         self.mass -= self.mass * COST_OF_LIVING
+        assert self.mass > 0, "tax"
 
     def get_maintenance(self):
         self.maintenance = self.mass * COST_OF_LIVING
@@ -1060,7 +1062,7 @@ class Adult(Worm):
 
             eggs = math.exp(math.log(ri)*(1-p)+math.log(rj)*p) # Interpolate logarithmically between the two values
 
-        self.desired_egg_mass = eggs * EGGMASS
+        self.desired_egg_mass = eggs * EGGMASS * self.genome.egg_efficiency
 
     def eat(self, amount):
         self.mass += amount * METABOLIC_EFFICIENCY
@@ -1088,6 +1090,7 @@ class Adult(Worm):
             self.actual_egg_mass = 0
 
         self.mass -= self.actual_egg_mass
+        assert self.mass > 0, "mass > actual_egg_mass"
         self.total_egg_mass += self.actual_egg_mass
 
     #@profile
@@ -1107,7 +1110,7 @@ class Adult(Worm):
 
         eggs = []
 
-        eggs_available = self.total_egg_mass // EGGMASS * self.genome.egg_efficiency 
+        eggs_available = self.total_egg_mass // EGGMASS
         self.current_egg_progress = self.total_egg_mass - (self.eggs_laid * EGGMASS)
 
         if eggs_available > self.eggs_laid: # Check if enough egg mass has been added to lay a new egg
@@ -1120,7 +1123,9 @@ class Adult(Worm):
             self.bag()
             return eggs
 
-        self.p_death = (math.exp(self.age / gompertzTau) - 1) / gompertzA # Probability of dying at given time
+        self.p_death = self.genome.life_span * (math.exp(self.age / gompertzTau) - 1) / gompertzA # Probability of dying at given time
+
+        
         roll = random.rand()
         if roll < self.p_death:
             self.die('old_age')
@@ -1156,6 +1161,7 @@ class Parlad(Worm):
         self.mass_decrement = self.mass / (30 / TIMESTEP) # Will lose this much mass per timestep (converted into dauers) down to 0
         self.note = 'Will burst into {} dauers in 30 hours'.format(self.dauer_potential)
         super(Parlad, self).__init__(name)
+        assert self.mass > 0, f"{self.total_egg_mass - (self.eggs_laid * EGGMASS)}, {self.genome}"
 
     def tax(self):
         """Rather than paying "metabolic tax," going to use this to keep track of mass as it is consumed by matricidal hatching
@@ -1164,11 +1170,12 @@ class Parlad(Worm):
     def make_checks(self, current_food, prev_food):
         """Parlads check if it's time to burst
         """
+        assert self.mass > 0
         released_dauers = []
         if self.age - self.lifespan >= 30:
             released_dauers.extend([Dauer]*self.dauer_potential)
             self.mass = self.mass - self.dauer_potential * STANDARD_LARVA_MASS
-            assert self.mass > 0
+            assert self.mass > 0, f"{self.dauer_potential} dauers released from {self.name} but mass is {self.mass}"
             self.die('bag')
 
         return released_dauers
@@ -1219,12 +1226,12 @@ Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
 
 Simulation.variants += [
-    Genome("NormalAppetite", 1, 1),
-    Genome("FatWorm", 1.5, 1),
-    Genome("SkinnyWorm", 0.5, 1),
-    Genome("NormalEgg", 1, 1),
-    Genome("BadEgg", 1, 0),
-    Genome("GoodEgg", 1, 2)
+    Genome("NormalEgg", 1, 1, 1),
+    Genome("BadEgg", 1, 0.5, 1),
+    Genome("GoodEgg", 1, 2, 1),
+    Genome("NormalLifespan", 1, 1, 1),
+    Genome("ShortLifespan", 1, 1, 0.5),
+    Genome("LongLifespan", 1, 1, 2),
 ]
 
 import datetime
