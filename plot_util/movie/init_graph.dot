@@ -1,0 +1,50 @@
+digraph {
+
+    layout=neato
+    graph [ nodesep=1 ranksep=1 ] 
+
+    adult [ pos="0,8!" id="adult" shape=circle, style=filled, fillcolor="#FF000080"] // Semi-transparent Red
+    egg [  pos="2,12!" id="egg" shape=circle, style=filled, fillcolor="#FFFF0080"] // Semi-transparent Yellow
+    larva [ pos="4,8!" id="larva" shape=circle, style=filled, fillcolor="#00FF0080"] // Semi-transparent Green
+    dauer [ pos="4,4!" id="dauer" shape=circle, style=filled, fillcolor="#0000FF80"] // Semi-transparent Blue
+    parlad [ pos="0,4!" id="parlad" shape=circle, style=filled, fillcolor="#80008080"] // Semi-transparent Purple
+
+    
+    invis_egg [ pos="1,10!" shape=plaintext label="" ]
+    invis_larva [ pos="3,10!" shape=plaintext label="" ] 
+    invis_adult [ pos="2,8!" shape=plaintext label="" ]
+    invis_dauer [ pos="2,4!" shape=plaintext label="" ]
+    invis_parlad [ pos="0,6!" shape=plaintext label="" ]
+
+
+    invis_dauer_larva_a [ pos="3,5!" shape=plaintext label=""]
+    invis_dauer_larva_b [ pos="3,6!" shape=plaintext label=""]
+
+        
+    invis_larva_dauer_b [ pos="5,6!" shape=plaintext label=""]
+    invis_larva_dauer_a [ pos="5,7!" shape=plaintext label=""]
+
+    adult -> invis_egg [ id="egg_adult" ]
+    egg -> invis_larva [ id="egg_larva" ] 
+    larva -> invis_adult [ id="larva_adult" ]
+
+    invis_larva_dauer_a -> invis_larva_dauer_b [ id="larva_dauer" ] 
+    invis_dauer_larva_a -> invis_dauer_larva_b [ id="dauer_larva" ]
+
+    adult -> invis_parlad [ id="adult_parlad" ]
+    parlad -> invis_dauer [ id="parlad_dauer" ]
+
+    parlad_starve [ pos="-2,0!" shape=plaintext label=Starve ]
+    dauer_starve [ pos="6,0!" shape=plaintext  label=Starve ]
+    larva_starve [ pos="6,6!"shape=plaintext label=Starve ] 
+    larva_cull [  pos="6,10!" shape=plaintext   label=Cull ]
+    dauer_cull [ pos="8,4!" shape=plaintext label=Cull ]
+
+    parlad -> parlad_starve [ id="parlad_parladStarve" label="0" ]
+    
+    dauer -> dauer_starve [ id="dauer_dauerStarve" label="0"]
+    dauer -> dauer_cull [ id="dauer_dauerCull" label="0" ]
+    larva -> larva_starve [ id="larva_larvaStarve" label="0" ]
+    larva -> larva_cull [ id="larva_larvaCull" label="0"]
+
+}
