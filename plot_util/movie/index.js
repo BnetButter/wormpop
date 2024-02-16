@@ -1,4 +1,6 @@
 
+let simulation_data = [ null ]
+
 document.addEventListener('DOMContentLoaded', (event) => {
     // Load the SVG file
     fetch('./init_graph.svg')
@@ -37,10 +39,13 @@ function getPlaybackSpeed() {
     return parseFloat(playbackSpeedInput.value);
 }
 
-function manipulateSVG(stageCount, transitionCount) {
+function manipulateSVG(stageCount, transitionCount, loadTimestep=null) {
     data = stageCount
     const svgElement = document.querySelector('#svg-container svg');
     const playbackSpeed = getPlaybackSpeed()
+
+    const timestepElement = document.getElementById('timestep');
+    const elapsedTimeElement = document.getElementById('elapsed-time');
 
     const getNode = (id) => svgElement.getElementById(id).querySelector("ellipse")
     const getEdge = (id) => svgElement.getElementById(id).querySelector("polygon")
@@ -80,6 +85,25 @@ function manipulateSVG(stageCount, transitionCount) {
         node.setAttribute("stroke-width", size)
     }
 
+ 
+
+    function updateTimestep(ts) {
+        // Calculate the current timestep based on a 3-hour period (3 * 60 * 60 * 1000 milliseconds in the simulated time)
+            // Update the timestep input element to the new timestep
+        timestepElement.value = ts;
+        
+        const elapsedHours = ts * 3
+
+        const days = Math.floor(elapsedHours / 24); // Calculate the number of whole days
+        const hours = elapsedHours % 24; // Calculate the remaining hours
+    
+        // Format the days and hours, padding with leading zeros if necessary
+        const formattedTime = `${days.toString().padStart(2, '0')}:${hours.toString().padStart(2, '0')}`;
+    
+        // Update the elapsed time element to the new formatted time
+        elapsedTimeElement.textContent = formattedTime;
+    }
+
     let execute_frame = () => {
         setSize(adultNode, "adult", timestep)
         setSize(larvaNode, "larva", timestep)
@@ -92,21 +116,46 @@ function manipulateSVG(stageCount, transitionCount) {
         setEdgeSize(larva_dauer_edge, "larva_to_dauer", timestep)
         setEdgeSize(dauer_larva_edge, "dauer_to_larva", timestep)
         setEdgeSize(adult_parlad_edge, "adult_to_bag", timestep)
-
-
+        
+        updateTimestep(timestep)
         timestep++
     }
 
-    setInterval(execute_frame, playbackSpeed * 100)
-
-
-
+    if (loadTimestep === null) {
+        setInterval(execute_frame, playbackSpeed * 100)
+    }
+    else {
+        timestep = loadTimestep
+        execute_frame()
+    }
     // Add more manipulation code here
 }
 
 
+
 document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('playback-button').addEventListener('click', processTSVFile);
+    document.getElementById('playback-button').addEventListener('click', () => {
+        if (simulation_data[0] === null) {
+            alert('Please load the TSV files first.');
+            return;
+        }
+        else {
+            manipulateSVG(simulation_data[0].stageCount, simulation_data[0].transitionCount)
+        }
+    });
+    document.getElementById('load-button').addEventListener('click', () => {
+        processTSVFile()
+    });
+
+    document.getElementById('show-step-button').addEventListener('click', () => {
+        if (simulation_data[0] === null) { 
+            alert('Please load the TSV files first.');
+            return;
+        }
+        const timestepElement = document.getElementById('show-step-value');
+        const timestep = parseInt(timestepElement.value);
+        manipulateSVG(simulation_data[0].stageCount, simulation_data[0].transitionCount, timestep)
+    })
 });
 
 function processTSVFile() {
@@ -130,7 +179,10 @@ function processTSVFile() {
                 const transitionCount = parseTransitionTSV(contents2);
                 console.log(transitionCount)
                 // Call manipulateSVG with both data sets
-                manipulateSVG(stageCount, transitionCount);
+                // manipulateSVG(stageCount, transitionCount)
+
+                simulation_data[0] = { stageCount, transitionCount }
+                document.getElementById('load-button').textContent = 'Loaded!'
             };
             reader2.readAsText(transitionFile);
         };

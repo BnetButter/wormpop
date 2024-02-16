@@ -1228,7 +1228,7 @@ Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 Simulation.variants += [
     Genome("NormalEgg", 1, 1, 1),
     Genome("BadEgg", 1, 0.5, 1),
-    Genome("GoodEgg", 1, 2, 1),
+    Genome("GoodEgg", 1, 20, 1),
     Genome("NormalLifespan", 1, 1, 1),
     Genome("ShortLifespan", 1, 1, 0.5),
     Genome("LongLifespan", 1, 1, 2),
