@@ -3,19 +3,19 @@ digraph {
     layout=neato
     graph [ nodesep=1 ranksep=1 ] 
 
-    adult [ pos="0,8!" id="adult" shape=circle, style=filled, fillcolor="#FF000080"] // Semi-transparent Red
-    egg [  pos="2,12!" id="egg" shape=circle, style=filled, fillcolor="#FFFF0080"] // Semi-transparent Yellow
-    larva [ pos="4,8!" id="larva" shape=circle, style=filled, fillcolor="#00FF0080"] // Semi-transparent Green
-    dauer [ pos="4,4!" id="dauer" shape=circle, style=filled, fillcolor="#0000FF80"] // Semi-transparent Blue
-    parlad [ pos="0,4!" id="parlad" shape=circle, style=filled, fillcolor="#80008080"] // Semi-transparent Purple
+    adult [ label="Adult" fontsize=20 pos="0,8!" id="adult" shape=circle, style=filled, fillcolor="#FF000080"] // Semi-transparent Red
+    egg [  label="Egg" fontsize=20 pos="2,12!" id="egg" shape=circle, style=filled, fillcolor="#FFFF0080"] // Semi-transparent Yellow
+    larva [ label="Larva" fontsize=20 pos="4,8!" id="larva" shape=circle, style=filled, fillcolor="#00FF0080"] // Semi-transparent Green
+    dauer [ label="Dauer" fontsize=20 pos="4,4!" id="dauer" shape=circle, style=filled, fillcolor="#0000FF80"] // Semi-transparent Blue
+    parlad [ label="Parlad" fontsize=20 pos="0,4!" id="parlad" shape=circle, style=filled, fillcolor="#80008080"] // Semi-transparent Purple
 
     
     invis_egg [ pos="1,10!" shape=plaintext label="" ]
-    invis_larva [ pos="3,10!" shape=plaintext label="" ] 
+    invis_larva [ pos="3,10!" shape=plaintext label="" ]
     invis_adult [ pos="2,8!" shape=plaintext label="" ]
     invis_dauer [ pos="2,4!" shape=plaintext label="" ]
     invis_parlad [ pos="0,6!" shape=plaintext label="" ]
-
+    
 
     invis_dauer_larva_a [ pos="3,5!" shape=plaintext label=""]
     invis_dauer_larva_b [ pos="3,6!" shape=plaintext label=""]
@@ -40,11 +40,16 @@ digraph {
     larva_cull [  pos="6,10!" shape=plaintext   label=Cull ]
     dauer_cull [ pos="8,4!" shape=plaintext label=Cull ]
 
-    parlad -> parlad_starve [ id="parlad_parladStarve" label="0" ]
+    adult_old [ pos="-4,8!" fontsize=16 shape=plaintext label="Old Age" ]
+    adult_old_invis [ pos="-2,8!" shape=plaintext label="" ]
+
+    adult -> adult_old_invis [ id="adult_old" ]
+
+    parlad -> parlad_starve [ id="parlad_parladStarve" label="" ]
     
-    dauer -> dauer_starve [ id="dauer_dauerStarve" label="0"]
-    dauer -> dauer_cull [ id="dauer_dauerCull" label="0" ]
-    larva -> larva_starve [ id="larva_larvaStarve" label="0" ]
-    larva -> larva_cull [ id="larva_larvaCull" label="0"]
+    dauer -> dauer_starve [ id="dauer_dauerStarve" label=""]
+    dauer -> dauer_cull [ id="dauer_dauerCull" label="" ]
+    larva -> larva_starve [ id="larva_larvaStarve" label="" ]
+    larva -> larva_cull [ id="larva_larvaCull" label=""]
 
 }
