@@ -1241,7 +1241,7 @@ if args["--database"]:
         conn.execute('''CREATE TABLE IF NOT EXISTS Metadata
                     (name TEXT, start_time TEXT, parameter TEXT, status TEXT, error TEXT)''')
         # Inserting values into the Metadata table
-        name = 'speedtest'
+        name = 'speed_test' if args['--name'] is None else args['--name']
         start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn.execute('INSERT INTO Metadata (name, start_time, parameter) VALUES (?, ?, ?)', (name, start_time, json.dumps(param)))
         # Committing the transaction
