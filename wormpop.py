@@ -382,6 +382,9 @@ class Simulation:
         adult_to_bag, adult_to_bag_mass = AdultToBagGet()
         dauer_to_larva, dauer_to_larva_mass = DauerToLarvaGet()
         death_metrics = die_ind, die_mass = die_reporter()
+        parlad_to_dauer, parlad_to_dauer_mass = ParladToDauerGet()
+
+
 
         if header:
             with open(self.stage_transition, "w") as fp:
@@ -392,7 +395,11 @@ class Simulation:
                     "larva_to_adult", "larva_to_adult_mass", 
                     "larva_to_dauer","larva_to_dauer_mass",
                     "adult_to_bag","adult_to_bag_mass",
-                    "dauer_to_larva", "darva_to_larva_mass"])
+                    "dauer_to_larva", "darva_to_larva_mass", 
+                    "adult_laid_egg", "adult_laid_egg_mass",
+                    "parlad_to_dauer", "parlad_to_dauer_mass",
+                
+                ])
             
             with open(self.death_transition, "w") as fp:
                 
@@ -418,6 +425,8 @@ class Simulation:
                     larva_to_dauer, larva_to_dauer_mass,
                     adult_to_bag, adult_to_bag_mass,
                     dauer_to_larva, dauer_to_larva_mass,
+                    eggs_laid, eggs_laid * EGGMASS,
+                    parlad_to_dauer, parlad_to_dauer_mass
             ])
         
         with open(self.death_transition, "a+") as fp:
@@ -1144,6 +1153,30 @@ class Adult(Worm):
         self.__class__ = Parlad
         self.__init__(self.name)
 
+def CountParladToDauer():
+    num_parlads = 0
+
+    def set_parlads(func):
+        def wraps(*args, **kwargs):
+            nonlocal num_parlads
+            val = func(*args, **kwargs)
+            num_parlads += len(val)
+            return val
+        return wraps
+    
+    def get_parlads():
+        nonlocal num_parlads
+        val = num_parlads
+        num_parlads = 0
+        return val, val * STANDARD_LARVA_MASS
+    
+    return get_parlads, set_parlads
+
+
+ParladToDauerGet, ParladToDauerSet = CountParladToDauer()
+    
+
+    
 
 class Parlad(Worm):
     """Fifth stage 
@@ -1167,6 +1200,7 @@ class Parlad(Worm):
         """Rather than paying "metabolic tax," going to use this to keep track of mass as it is consumed by matricidal hatching
         """
 
+    @ParladToDauerSet
     def make_checks(self, current_food, prev_food):
         """Parlads check if it's time to burst
         """
