@@ -1271,7 +1271,7 @@ Simulation.variants += [
 import datetime
 
 if args["--database"]:
-    with sqlite3.connect(args["--database"]) as conn:
+    with sqlite3.connect(directory + "/" + args["--database"]) as conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS Metadata
                     (name TEXT, start_time TEXT, parameter TEXT, status TEXT, error TEXT)''')
         # Inserting values into the Metadata table
