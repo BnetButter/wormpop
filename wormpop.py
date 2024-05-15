@@ -1023,38 +1023,32 @@ class Adult(Worm):
         """Mass of eggs (desired to be) produced on a given day. Used in determining appetite.
         Based on empirical measurement
 
-        eggs/day = M * x^n * exp(-x / x0)
+        d_eggs/dt = M * x^n * exp(-x / x0)
 
-        M = 17.33 * x^(-0.166) + 30.08
-        n = -1.86 * x^(-0.299) + 5.908
-        x0 = 0.233 * x^(-0.762) + 0.581
-        
-        x = age in days (?)
-        
-        ---
+        x = adult age (days)
 
-        The previous code is written fairly differently to how the above functions are described in the paper,
-        so I'll err on the side of the code for now and see if I get reasonable numbers. 
+        M, n, and x0 are referenced from the above eggM, eggN, and eggScale lists according to food concentration.
 
-        In the code as written, M, n, and x0 are referenced from a table according to food concentration, from which
-        eggs/day is calculated. So I'm unclear on how the 9 constant parameters in the functions above translate to those tables.
+        To get eggs per timestep (rather than eggs per day), the result is multiplied by timestep length / 24
 
-        Converted everything here to work in hours and nanograms.
-        Updates egg_mass attribute to desired egg mass generated for the current timestep (this can then be added to total egg mass
-        to calculate progeny production).
+        Returns desired mass to be allocated to egg production, in nanograms
+
 
         """
 
-        x = self.adult_age / 24
+        x = self.adult_age / 24 # Convert adult age from hours to days
+        dt = TIMESTEP / 24
         food_avail = food_conc
 
         if food_avail > 1: # Return egg formula for high food conditions
             i = 5
-            eggs = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
+            #eggs = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
+            eggs = eggM[i] * x**eggN[i] * math.exp(-x / eggScale[i]) * dt
 
         elif food_avail in eggFood: # Edge case if food conc is exactly one of the measured concentrations (mostly for testing)
             i = numpy.where([idx == food_avail for idx in eggFood])[0][0]
-            eggs = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
+            #eggs = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
+            eggs = eggM[i] * x**eggN[i] * math.exp(-x / eggScale[i]) * dt
 
         else: # Interpolate between egg values for two closest measured food conditions
             if food_avail < eggFood[1]: # Account for values below minimum measured food concentration
@@ -1065,8 +1059,10 @@ class Adult(Worm):
                     if food_avail > eggFood[idx] and food_avail < eggFood[idx+1]:
                         i = idx
                         j = idx + 1
-            ri = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
-            rj = eggM[j] * math.exp(eggN[j] * math.log(x) - x/eggScale[j])
+            #ri = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
+            ri = eggM[i] * x**eggN[i] * math.exp(-x / eggScale[i]) * dt
+            #rj = eggM[j] * math.exp(eggN[j] * math.log(x) - x/eggScale[j])
+            rj = eggM[j] * x**eggN[j] * math.exp(-x / eggScale[j]) * dt
             p = (food_avail - eggFood[i]) / (eggFood[j] - eggFood[i]) # Weighting factor
 
             eggs = math.exp(math.log(ri)*(1-p)+math.log(rj)*p) # Interpolate logarithmically between the two values
