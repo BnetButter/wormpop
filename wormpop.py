@@ -18,6 +18,22 @@ import sys
 import collections
 import functools
 
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Float,
+    ForeignKey
+)
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import (
+    sessionmaker,
+    relationship
+)
+
+Base = declarative_base()
+
 args = docopt.docopt(__doc__)
 parameters = args["--parameters"]
 database = args["--database"] if args["--database"] is not None else ":memory:"
@@ -107,6 +123,8 @@ gompertzLS = 21 * 24 # Roughly average lifespan (days). Equivalent to the 168 ti
 gompertzA = gompertzLS * (math.exp(gompertzN) - 1)
 gompertzTau = 0.85 * (gompertzLS / gompertzN)
 
+
+
 def CreateCounter():
     counter = 0
     mass_counter = 0
@@ -141,7 +159,35 @@ Genome = namedtuple("Genome", [
     "life_span"
 ])
 
+attributes = [
+            'name', 'age', 'stage', 'mass', 'current_egg_progress', 'eggs_laid',
+            'sensed_food', 'appetite', 'growth_mass', 'desired_egg_mass',
+            'actual_egg_mass', 'maintenance', 'portion', 'p_starve',
+            'p_awaken', 'p_death', 'note', 'variant'
+        ]
 
+class WormTimestep(Base):
+    __tablename__ = "worms"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    Worm_Name = Column(String)
+    Timestep = Column(Integer)
+    Age_hours = Column(Float)
+    Stage = Column(String)
+    Mass = Column(Float)
+    Egg_Mass = Column(Float)
+    Eggs_Laid = Column(Integer)
+    Available_Food = Column(Float)
+    Total_Appetite = Column(Float)
+    Desired_Growth = Column(Float)
+    Desired_Eggs = Column(Float)
+    Actual_Egg_Investment = Column(Float)
+    Metabolic_Cost = Column(Float)
+    Amount_Eaten = Column(Float)
+    Chance_of_Starvation = Column(Float)
+    Chance_of_Dauer_Awakening = Column(Float)
+    Chance_of_Death = Column(Float)
+    Notes = Column(String)
+    Variant = Column(String)
 
 class Simulation:
     """Totality of the environment
@@ -260,70 +306,53 @@ class Simulation:
         # Individual reporting:
 
         attributes = [
-            'name', 'age', 'stage', 'mass', 'current_egg_progress', 'eggs_laid', 
-            'sensed_food', 'appetite', 'growth_mass', 'desired_egg_mass', 
-            'actual_egg_mass', 'maintenance', 'portion', 'p_starve', 
-            'p_awaken', 'p_death', 'note'
+            'name', 'age', 'stage', 'mass', 'current_egg_progress', 'eggs_laid',
+            'sensed_food', 'appetite', 'growth_mass', 'desired_egg_mass',
+            'actual_egg_mass', 'maintenance', 'portion', 'p_starve',
+            'p_awaken', 'p_death', 'note', 'variant'
         ]
 
-        # Create the table if it doesn't exist
-        create_table_sql = '''
-        CREATE TABLE IF NOT EXISTS worms (
-            Worm_Name TEXT,
-            Timestep INTEGER, 
-            Age_hours REAL,
-            Stage TEXT,
-            Mass REAL,
-            Egg_Mass REAL,
-            Eggs_Laid INTEGER,
-            Available_Food REAL,
-            Total_Appetite REAL,
-            Desired_Growth REAL,
-            Desired_Eggs REAL,
-            Actual_Egg_Investment REAL,
-            Metabolic_Cost REAL,
-            Amount_Eaten REAL,
-            Chance_of_Starvation REAL,
-            Chance_of_Dauer_Awakening REAL,
-            Chance_of_Death REAL,
-            Notes TEXT
-        )
-        '''
         if self.report_individuals:
-          
-            cursor = self.connection.cursor()
-            cursor.execute(create_table_sql)
 
-        
             for w in self.worms:
                 w.note = 'Born at timestep {}'.format(self.timestep) if not hasattr(w, 'note') else w.note
 
                 for a in attributes:
                     if not hasattr(w, a):
-                        setattr(w, a, '')
+                        setattr(w, a, None)
 
                 reportlist = [getattr(w, a) for a in attributes]
 
-                # Adding current timestep before the rest of the reportlist attributes
-                data_to_insert = [w.name, self.timestep] + reportlist[1:]
-                self.bulk_data.append(data_to_insert)
+                wormts = WormTimestep(
+                    Worm_Name=w.name,
+                    Timestep=self.timestep,
+                    Age_hours=w.age,
+                    Stage=w.stage,
+                    Mass=w.mass,
+                    Egg_Mass=w.current_egg_progress,
+                    Eggs_Laid=w.eggs_laid,
+                    Available_Food=w.sensed_food,
+                    Total_Appetite=w.appetite,
+                    Desired_Growth=w.growth_mass,
+                    Desired_Eggs=w.desired_egg_mass,
+                    Actual_Egg_Investment=w.actual_egg_mass,
+                    Metabolic_Cost=w.maintenance,
+                    Amount_Eaten=w.portion,
+                    Chance_of_Starvation=w.p_starve,
+                    Chance_of_Dauer_Awakening=w.p_awaken, 
+                    Chance_of_Death=w.p_death,
+                    Notes=w.note,
+                    Variant=w.note,
+                )
+
+                self.bulk_data.append(wormts)
+
                 w.note = ''
 
             if self.timestep % 10 == 0:
-                insert_sql = '''
-                INSERT INTO worms (
-                    Worm_Name, Timestep, Age_hours, Stage, Mass, Egg_Mass, Eggs_Laid, 
-                    Available_Food, Total_Appetite, Desired_Growth, Desired_Eggs, 
-                    Actual_Egg_Investment, Metabolic_Cost, Amount_Eaten, 
-                    Chance_of_Starvation, Chance_of_Dauer_Awakening, 
-                    Chance_of_Death, Notes
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                '''
-                cursor.executemany(insert_sql, self.bulk_data)
-                self.bulk_data.clear()  # Clear the data list after inserting
+                self.connection.bulk_save_objects(self.bulk_data)
+                self.bulk_data = []
                 self.connection.commit()
-                        
 
         self.dead.extend([w for w in self.worms if w.stage == 'dead'])
         self.worms[:] = [w for w in self.worms if w.stage != 'dead']
@@ -689,7 +718,7 @@ class Worm:
     """
 
     CULL_PERCENT = 10
-
+    
  
 
     def __init__(self, name, genome=None):
@@ -790,7 +819,7 @@ class Larva(Worm):
         if not hasattr(self, 'mass'): self.mass = STANDARD_LARVA_MASS
         if not hasattr(self, 'age'): self.age = 0
         if not hasattr(self, 'larval_age'): self.larval_age = 0
-        self.p_awaken = ''
+        self.p_awaken = None
         super(Larva, self).__init__(name)
 
     def ageup(self):
@@ -826,10 +855,15 @@ class Larva(Worm):
 
             K = Kr * math.tanh(Ks * food_conc)
             b = bm + (bn / food_conc)
+
+       
             dx = K * self.mass * (1 - (b * self.mass)) * dt
+            # assert (1 -(b * self.mass)) > 0
             self.growth_mass = dx
         else:
             self.growth_mass = 0
+        
+        # assert self.growth_mass >= 0
 
     def eat(self, amount):
         self.mass += amount * METABOLIC_EFFICIENCY * self.genome.appetite
@@ -938,7 +972,7 @@ class Dauer(Worm):
         self.eggs_laid = 0
         if not hasattr(self, 'mass'): self.mass = STANDARD_LARVA_MASS
         if not hasattr(self, 'age'): self.age = 15 # assuming 30 hours from parlad bagginng -> 15 hours for eggs to hatch, 15 hours for dauers to develop
-        self.p_starve = ''
+        self.p_starve = None
         super(Dauer, self).__init__(name)
 
     def make_checks(self, current_food, prev_food):
@@ -1015,9 +1049,15 @@ class Adult(Worm):
             K = Kr * math.tanh(Ks * food_conc)
             b = bm + (bn / food_conc)
             dx = K * self.mass * (1 - (b * self.mass)) * dt
+            
+            assert K > 0
+            # assert (1 - (b  * self.mass)) > 0
+            
             self.growth_mass = dx
         else:
             self.growth_mass = 0
+        
+        # assert self.growth_mass >= 0
 
     def get_egg_mass(self, food_conc):
         """Mass of eggs (desired to be) produced on a given day. Used in determining appetite.
@@ -1256,27 +1296,22 @@ Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
 
 Simulation.variants += [
-    Genome("NormalEgg", 1, 1, 1),
-    Genome("BadEgg", 1, 0.5, 1),
-    Genome("GoodEgg", 1, 20, 1),
-    Genome("NormalLifespan", 1, 1, 1),
-    Genome("ShortLifespan", 1, 1, 0.5),
-    Genome("LongLifespan", 1, 1, 2),
+    Genome("ShortLifespan", 1, 1, 1),
+    Genome("LongLifespan", 1, 1, 1),
 ]
 
-import datetime
 
 if args["--database"]:
-    with sqlite3.connect(directory + "/" + args["--database"]) as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS Metadata
-                    (name TEXT, start_time TEXT, parameter TEXT, status TEXT, error TEXT)''')
-        # Inserting values into the Metadata table
-        name = 'speed_test' if args['--name'] is None else args['--name']
-        start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        conn.execute('INSERT INTO Metadata (name, start_time, parameter) VALUES (?, ?, ?)', (name, start_time, json.dumps(param)))
-        # Committing the transaction
-        conn.commit()
-        test = Simulation(directory, connection=conn, report_individuals=True)
+    # Establish connection
+    engine =  create_engine(f"sqlite:///{directory}/{args['--database']}")
+    
+    # Create all the table
+    Base.metadata.create_all(engine)
+    
+    # Open the session
+    Session = sessionmaker(bind=engine)
+    with Session() as session:
+        test = Simulation(directory, connection=session, report_individuals=True)
         test.run()
 else:
     test = Simulation(directory)
