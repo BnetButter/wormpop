@@ -3,7 +3,7 @@
 #%%
 
 """
-USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>]
+USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>] [ --variants=<string> ]
 """
 
 import pathlib
@@ -13,10 +13,9 @@ from numpy import random
 import csv
 import json
 import docopt
-import sqlite3
-import sys
 import collections
 import functools
+import os
 
 from sqlalchemy import (
     create_engine,
@@ -32,6 +31,10 @@ from sqlalchemy.orm import (
     relationship
 )
 
+from sqlalchemy.sql import expression
+from sqlalchemy.schema import DefaultClause
+
+
 Base = declarative_base()
 
 args = docopt.docopt(__doc__)
@@ -45,13 +48,16 @@ directory = args["--directory"] if args["--directory"] is not None else "Simulat
 import json
 
 # Read the JSON file
+if not parameters:
+    parameters = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "constants.json"
+    )
 
-if parameters:
-    with open(parameters, 'r') as file:
-        param = json.load(file)
-else:
-    param = json.load(sys.stdin)
+with open(parameters, 'r') as file:
+    param = json.load(file)
 
+        
 # Simulation time details
 SIMULATION_LENGTH = param['SIMULATION_LENGTH']  # 800 timesteps = 100 days
 TIMESTEP = param['TIMESTEP']  # 3 hr per timestep, 8 timesteps per day
@@ -103,7 +109,7 @@ ADULT_CULL_PERCENT = param['ADULT_CULL_PERCENT']
 PARLAD_CULL_PERCENT = param['PARLAD_CULL_PERCENT']
 
 # You can now use these constants in your simulation code
-
+GENOME_VERSION = "0.1"
 
 # Constants for logistic growth formula:
 Kr = 1.78027908103543
@@ -149,22 +155,45 @@ def CreateCounter():
 
     return wrapper, reporter
 
+def get_column_default(column):
+    if column.default is None:
+        return None
+    if isinstance(column.default, DefaultClause):
+        if isinstance(column.default.arg, expression.Function):
+            return None
+        return column.default.arg
+    return column.default.arg
 
-from collections import namedtuple
+class Genome(Base):
+    __tablename__ = "Genome"
+    __variant__ = Column(String, primary_key=True)
 
-Genome = namedtuple("Genome", [
-    "variant", 
-    "appetite",
-    "egg_efficiency",
-    "life_span"
-])
+    appetite: float = Column(Float, default=1)
+    egg_efficiency: float = Column(Float, default=1)
+    life_span: float = Column(Float, default=1)
+    metabolic_tax: float = Column(Float, default=0.035)
 
-attributes = [
-            'name', 'age', 'stage', 'mass', 'current_egg_progress', 'eggs_laid',
-            'sensed_food', 'appetite', 'growth_mass', 'desired_egg_mass',
-            'actual_egg_mass', 'maintenance', 'portion', 'p_starve',
-            'p_awaken', 'p_death', 'note', 'variant'
-        ]
+    @classmethod
+    def get_schema(cls):
+        schema = {}
+        for column in cls.__table__.columns:
+            column_type = str(column.type)
+            if column_type.startswith("VARCHAR") or column_type.startswith("STRING"):
+                column_type = "string"
+            elif column_type.startswith("FLOAT"):
+                column_type = "float"
+            elif column_type.startswith("INTEGER"):
+                column_type = "integer"
+           
+            default_value = get_column_default(column)
+
+            schema[column.name] = {
+                "type": column_type,
+                "default": default_value
+            }
+
+        return schema
+
 
 class WormTimestep(Base):
     __tablename__ = "worms"
@@ -188,6 +217,7 @@ class WormTimestep(Base):
     Chance_of_Death = Column(Float)
     Notes = Column(String)
     Variant = Column(String)
+
 
 class Simulation:
     """Totality of the environment
@@ -220,13 +250,19 @@ class Simulation:
         self.report_individuals = report_individuals
         self.connection = connection
         self.bulk_data = []
-
         self.variants = []
-    
+
     @classmethod
-    def add_variant(cls, genome: Genome):
-        cls.variants.append(genome)
-    
+    def load_variants(cls, data: dict, session):
+        for d in data["variants"]:
+            assert "__variant__" in d, "Must name the variant"
+            G = Genome(**d)
+            session.add(G)
+            cls.variants.append(G)
+
+        session.commit()
+
+
     def iterate_once(self):
         """Meat and potatoes algorithm of the simulation.
         
@@ -342,7 +378,7 @@ class Simulation:
                     Chance_of_Dauer_Awakening=w.p_awaken, 
                     Chance_of_Death=w.p_death,
                     Notes=w.note,
-                    Variant=w.note,
+                    Variant=w.genome.__variant__
                 )
 
                 self.bulk_data.append(wormts)
@@ -442,7 +478,7 @@ class Simulation:
         
             with open(self.variant_count, "w") as fp:
                 writer = csv.writer(fp, delimiter="\t")
-                fields = ["Timestep"] + [ variant.variant for variant in Simulation.variants ]
+                fields = ["Timestep"] + [ variant.__variant__ for variant in Simulation.variants ]
                 writer.writerow(fields)
 
                 
@@ -471,12 +507,12 @@ class Simulation:
 
         counter = collections.defaultdict(int)
         for w in self.worms:
-            counter[w.genome.variant] += 1
+            counter[w.genome.__variant__] += 1
         
 
         with open(self.variant_count, "a+") as fp:
             writer = csv.writer(fp, delimiter="\t")
-            data = [self.timestep] + [ counter[variant.variant] for variant in Simulation.variants ]
+            data = [self.timestep] + [ counter[variant.__variant__] for variant in Simulation.variants ]
             writer.writerow(data)
 
 
@@ -719,7 +755,9 @@ class Worm:
 
     CULL_PERCENT = 10
     
- 
+
+    genome: Genome # Just a type hint
+
 
     def __init__(self, name, genome=None):
         self.name = name
@@ -827,11 +865,11 @@ class Larva(Worm):
         self.larval_age += TIMESTEP
 
     def tax(self):
-        self.mass -= self.mass * COST_OF_LIVING
+        self.mass -= self.mass * self.genome.metabolic_tax
         assert self.mass > 0, "tax"
 
     def get_maintenance(self):
-        self.maintenance = self.mass * COST_OF_LIVING
+        self.maintenance = self.mass * self.genome.metabolic_tax
 
     def get_growth_mass(self, food_conc):
         """Logistic growth formula:
@@ -1030,10 +1068,10 @@ class Adult(Worm):
         self.adult_age += TIMESTEP
 
     def tax(self):
-        self.mass -= self.mass * COST_OF_LIVING
+        self.mass -= self.mass * self.genome.metabolic_tax
 
     def get_maintenance(self):
-        self.maintenance = self.mass * COST_OF_LIVING
+        self.maintenance = self.mass * self.genome.metabolic_tax
 
 
     def get_growth_mass(self, food_conc):
@@ -1294,25 +1332,32 @@ Dauer.CULL_PERCENT = DAUER_CULL_PERCENT
 Adult.CULL_PERCENT = ADULT_CULL_PERCENT
 Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
-
-Simulation.variants += [
-    Genome("ShortLifespan", 1, 1, 1),
-    Genome("LongLifespan", 1, 1, 1),
-]
+def main():
 
 
-if args["--database"]:
-    # Establish connection
-    engine =  create_engine(f"sqlite:///{directory}/{args['--database']}")
+    if args["--variants"]:
+        variants_file = args["--variants"]
+        with open(variants_file) as fp:
+            variants_data = json.load(fp)
     
+
+    if args["--database"]:
+        # Establish connection
+        engine =  create_engine(f"sqlite:///{directory}/{args['--database']}")
+
+    else:
+        engine = create_engine(f"sqlite://")
+
     # Create all the table
     Base.metadata.create_all(engine)
-    
+
     # Open the session
     Session = sessionmaker(bind=engine)
     with Session() as session:
-        test = Simulation(directory, connection=session, report_individuals=True)
+        Simulation.load_variants(variants_data, session)
+
+        test = Simulation(directory, connection=session, report_individuals=True)    
         test.run()
-else:
-    test = Simulation(directory)
-    test.run()
+
+if __name__ == "__main__":
+    main()
