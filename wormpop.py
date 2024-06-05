@@ -16,6 +16,7 @@ import docopt
 import collections
 import functools
 import os
+import numpy as np
 
 from sqlalchemy import (
     create_engine,
@@ -131,6 +132,38 @@ gompertzTau = 0.85 * (gompertzLS / gompertzN)
 
 
 
+
+
+def egg_curve(x, Y, genome: "Genome"):
+    Y = Y/4
+    dt = TIMESTEP / 24 # dt = timestep length in days
+
+    eggN = genome.eggN
+    eggM = genome.eggM
+    eggScale = genome.eggScale
+
+    def f1(x):
+        return (eggM * 3.273) * x**(eggN * 1.319) * np.exp(-x / (eggScale * 3.481)) * dt
+
+    def f2(x):
+        return (eggM * 4.817) * x**(eggN * 2.201) * np.exp(-x / (eggScale * 2.024)) * dt
+
+    def f3(x):
+        return (eggM * 7.326) * x**(eggN * 3.485) * np.exp(-x / (eggScale * 1.111)) * dt
+
+    def f4(x):
+        return (eggM * 16.86) * x**(eggN  * 4.157) * np.exp(-x / (eggScale * 0.75)) * dt
+
+    if 0 <= Y < 1/3:
+        return (1 - 3*Y) * f1(x) + 3*Y * f2(x)
+    elif 1/3 <= Y < 2/3:
+        return (2 - 3*Y) * f2(x) + (3*Y - 1) * f3(x)
+    elif 2/3 <= Y <= 1:
+        return (3 - 3*Y) * f3(x) + (3*Y - 2) * f4(x)
+    else:
+        return f4(x)
+
+
 def CreateCounter():
     counter = 0
     mass_counter = 0
@@ -164,14 +197,20 @@ def get_column_default(column):
         return column.default.arg
     return column.default.arg
 
+
+
 class Genome(Base):
     __tablename__ = "Genome"
-    __variant__ = Column(String, primary_key=True)
+    variant = Column(String, primary_key=True)
 
     appetite: float = Column(Float, default=1)
-    egg_efficiency: float = Column(Float, default=1)
     life_span: float = Column(Float, default=1)
     metabolic_tax: float = Column(Float, default=0.035)
+
+    eggN: float = Column(Float, default=1)
+    eggM: float = Column(Float, default=1)
+    eggScale: float = Column(Float, default=1)
+
 
     @classmethod
     def get_schema(cls):
@@ -233,7 +272,7 @@ class Simulation:
     > simulation.run() # Run simulation with default number of timesteps
 
     """
-
+    instance: "Simulation" = None
     variants = []
 
     def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None):
@@ -251,11 +290,12 @@ class Simulation:
         self.connection = connection
         self.bulk_data = []
         self.variants = []
+        self.worm_count = [] # list of number of worms in each timestep
 
     @classmethod
     def load_variants(cls, data: dict, session):
         for d in data["variants"]:
-            assert "__variant__" in d, "Must name the variant"
+            assert "variant" in d, "Must name the variant"
             G = Genome(**d)
             session.add(G)
             cls.variants.append(G)
@@ -303,6 +343,8 @@ class Simulation:
         
         # Run Checks
         self.worms.make_checks(self.food_history) # Using food concentration detected before feeding so you're only starving if you didn't get enough to eat
+
+        self.worm_count.append(len(self.worms))
 
         # Report outcome of timestep
         self.report()
@@ -378,7 +420,7 @@ class Simulation:
                     Chance_of_Dauer_Awakening=w.p_awaken, 
                     Chance_of_Death=w.p_death,
                     Notes=w.note,
-                    Variant=w.genome.__variant__
+                    Variant=w.genome.variant
                 )
 
                 self.bulk_data.append(wormts)
@@ -478,7 +520,7 @@ class Simulation:
         
             with open(self.variant_count, "w") as fp:
                 writer = csv.writer(fp, delimiter="\t")
-                fields = ["Timestep"] + [ variant.__variant__ for variant in Simulation.variants ]
+                fields = ["Timestep"] + [ variant.variant for variant in Simulation.variants ]
                 writer.writerow(fields)
 
                 
@@ -507,12 +549,12 @@ class Simulation:
 
         counter = collections.defaultdict(int)
         for w in self.worms:
-            counter[w.genome.__variant__] += 1
+            counter[w.genome.variant] += 1
         
 
         with open(self.variant_count, "a+") as fp:
             writer = csv.writer(fp, delimiter="\t")
-            data = [self.timestep] + [ counter[variant.__variant__] for variant in Simulation.variants ]
+            data = [self.timestep] + [ counter[variant.variant] for variant in Simulation.variants ]
             writer.writerow(data)
 
 
@@ -896,20 +938,36 @@ class Larva(Worm):
 
        
             dx = K * self.mass * (1 - (b * self.mass)) * dt
-            # assert (1 -(b * self.mass)) > 0
-            self.growth_mass = dx
+            
+            self.growth_mass = dx if dx > 0 else 0
         else:
             self.growth_mass = 0
         
-        # assert self.growth_mass >= 0
+        
+        assert self.growth_mass >= 0
 
     def eat(self, amount):
         self.mass += amount * METABOLIC_EFFICIENCY * self.genome.appetite
 
+
+    @staticmethod
+    def dauer_pheremone_function(num_worms):
+        num_worms = numpy.array(num_worms)
+
+        # Normalize the number of worms
+        if len(num_worms) == 0:
+            return 0
+        else:
+            mu = numpy.mean(num_worms)
+            sigma = numpy.std(num_worms)
+            X_standardized = (num_worms - mu) / sigma
+            # A logistic function
+            return numpy.mean(1 / (1 + numpy.exp(-X_standardized)))
+
     #@profile
     def make_checks(self, current_food, prev_food):
         """Larvae check if they starve, dauer, advance to adulthood, or fail to hit required adult before max transition age.
-        
+         
         dauer threshold defaults = 0.05 mg/mL while in mass range 137-456 ng.
         
         was doing it this way before:
@@ -937,9 +995,15 @@ class Larva(Worm):
             self.can_dauer = False
 
 
+        dauer_multiplier = 1 #self.dauer_pheremone_function(Simulation.instance.worm_count)
+
         # Check dauer/starvation:
-        self.p_starve = (1 / DAUER_RATE) * math.exp(-0.5 * (current_food + prev_food) / DAUER_THRESHOLD)
+        self.p_starve = (1 / DAUER_RATE) * math.exp(-0.5 * (current_food + prev_food) / DAUER_THRESHOLD) * dauer_multiplier
+        
+        
+
         roll = random.rand() # Random number between 0 and 1
+
 
         if roll < self.p_starve:
 
@@ -1082,18 +1146,21 @@ class Adult(Worm):
         """
 
         if food_conc > 0:
+            
             dt = TIMESTEP / 24 # dt = timestep length in days
 
             K = Kr * math.tanh(Ks * food_conc)
             b = bm + (bn / food_conc)
+
+       
             dx = K * self.mass * (1 - (b * self.mass)) * dt
             
-            assert K > 0
-            # assert (1 - (b  * self.mass)) > 0
-            
-            self.growth_mass = dx
+            self.growth_mass = dx if dx > 0 else 0
         else:
             self.growth_mass = 0
+        
+        
+        assert self.growth_mass >= 0
         
         # assert self.growth_mass >= 0
 
@@ -1118,34 +1185,8 @@ class Adult(Worm):
         dt = TIMESTEP / 24
         food_avail = food_conc
 
-        if food_avail > 1: # Return egg formula for high food conditions
-            i = 5
-            #eggs = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
-            eggs = eggM[i] * x**eggN[i] * math.exp(-x / eggScale[i]) * dt
-
-        elif food_avail in eggFood: # Edge case if food conc is exactly one of the measured concentrations (mostly for testing)
-            i = numpy.where([idx == food_avail for idx in eggFood])[0][0]
-            #eggs = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
-            eggs = eggM[i] * x**eggN[i] * math.exp(-x / eggScale[i]) * dt
-
-        else: # Interpolate between egg values for two closest measured food conditions
-            if food_avail < eggFood[1]: # Account for values below minimum measured food concentration
-                i = 0
-                j = 1
-            else:
-                for idx in range(len(eggFood) - 1): # Choose nearest measured concentrations
-                    if food_avail > eggFood[idx] and food_avail < eggFood[idx+1]:
-                        i = idx
-                        j = idx + 1
-            #ri = eggM[i] * math.exp(eggN[i] * math.log(x) - x/eggScale[i])
-            ri = eggM[i] * x**eggN[i] * math.exp(-x / eggScale[i]) * dt
-            #rj = eggM[j] * math.exp(eggN[j] * math.log(x) - x/eggScale[j])
-            rj = eggM[j] * x**eggN[j] * math.exp(-x / eggScale[j]) * dt
-            p = (food_avail - eggFood[i]) / (eggFood[j] - eggFood[i]) # Weighting factor
-
-            eggs = math.exp(math.log(ri)*(1-p)+math.log(rj)*p) # Interpolate logarithmically between the two values
-
-        self.desired_egg_mass = eggs * EGGMASS * self.genome.egg_efficiency
+        eggs = egg_curve(x, food_avail, self.genome)
+        self.desired_egg_mass = eggs * EGGMASS
 
     def eat(self, amount):
         self.mass += amount * METABOLIC_EFFICIENCY
@@ -1356,7 +1397,7 @@ def main():
     with Session() as session:
         Simulation.load_variants(variants_data, session)
 
-        test = Simulation(directory, connection=session, report_individuals=True)    
+        Simulation.instance = test = Simulation(directory, connection=session, report_individuals=True)    
         test.run()
 
 if __name__ == "__main__":
