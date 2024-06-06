@@ -69,7 +69,7 @@ STARTING_STAGE = param['STARTING_STAGE']  # 'egg'
 EGGMASS = param['EGGMASS']  # Nanograms
 
 # Adult constants
-MIN_ADULT_MASS = param['MIN_ADULT_MASS']  # ng
+MIN_ADULT_MASS = param['MIN_ADULT_MASS']  # Minimum mass to be an adult (default 800 ng)
 MIN_ADULT_AGE = param['MIN_ADULT_AGE']  # Minimum age in hours to transition to adult
 MAX_ADULT_AGE = param['MAX_ADULT_AGE']  # Max age in hours to transition (larvae past this age die of "arrested development")
 
@@ -92,6 +92,9 @@ BAG_EFFICIENCY = param['BAG_EFFICIENCY']  # Efficiency with which somatic mass o
 # Food constants
 STARTING_FOOD = param['STARTING_FOOD']  # 10 mg = 1x10^7 ng
 FEEDING_AMOUNT = param['FEEDING_AMOUNT']  # 10 mg added per feeding schedule
+
+# Environment size
+FLASK_VOLUME = param['FLASK_VOLUME'] # default = 5 mL
 
 # Scheduling constants
 FEEDING_SCHEDULE = param['FEEDING_SCHEDULE']  # Frequency of adding food (default = 24 hr)
@@ -280,7 +283,7 @@ class Simulation:
         self.worms.initialize_worms(number_worms, starting_stage)
         self.dead = Dead_worms()
         self.food = starting_food
-        self.food_concentration = self.food / 5 / 1e6
+        self.food_concentration = self.food / 1e6 / FLASK_VOLUME  # convert to mg / mL
         self.food_history = [self.food_concentration] # Used to keep track of how much food each worm has seen
         self.path = pathlib.Path(output_location)
         self.timestep = 0
@@ -330,7 +333,7 @@ class Simulation:
         if self.time % FEEDING_SCHEDULE == 0: self.food += FEEDING_AMOUNT
 
         # Calculate appetite
-        self.food_concentration = self.food / 1e6 / 5 # Convert from nanograms to mg/mL
+        self.food_concentration = self.food / 1e6 / FLASK_VOLUME # Convert from nanograms to mg/mL
         self.food_history.append(self.food_concentration)
         self.worms.compute_appetite(self.food_concentration) # For simplicity, worms only detect environment once at the start of each time step
 
@@ -467,7 +470,7 @@ class Simulation:
         #else: 
         #    avg_life = ''
         
-        reportlist = [self.timestep, self.time, self.time / 24, self.food_concentration * 5e6, self.food_concentration]
+        reportlist = [self.timestep, self.time, self.time / 24, self.food_concentration * 1e6 * FLASK_VOLUME, self.food_concentration]
 
         reportlist.append(n_alive)
         reportlist.extend(stagecounts)
@@ -1078,13 +1081,13 @@ class Dauer(Worm):
         super(Dauer, self).__init__(name)
 
     def make_checks(self, current_food, prev_food):
-        """Dauers check if conditions are safe to exit dauer. Currently I'm treating dauers as immportal
+        """Dauers check if conditions are safe to exit dauer. Currently I'm treating dauers as immortal
 
         TODO: Add dauer attrition
         """
 
-        self.p_awaken = DAUER_EXIT_PROB * math.sqrt(0.5 * (current_food + prev_food) * 5e6) # Converted back to ng here for convenience
-                                                                                            # Could also just use converted dauer exit probability (3.24e-5 * sqrt(5e6) = 0.0724486)
+        self.p_awaken = DAUER_EXIT_PROB * math.sqrt(0.5 * (current_food + prev_food) * 1e6 * FLASK_VOLUME) # Converted back to ng here for convenience
+                                                                                                           # Could also just use converted dauer exit probability (3.24e-5 * sqrt(5e6) = 0.0724486)
         roll = random.rand()
         if roll < self.p_awaken:
             self.exit_dauer()
