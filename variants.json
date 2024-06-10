@@ -3,15 +3,15 @@
     
     "variants": [
         {
-            "__variant__": "Perfect Efficiency",
+            "variant": "Perfect Efficiency",
             "metabolic_tax": 0
         },
         {
-            "__variant__": "OK Efficiency",
+            "variant": "OK Efficiency",
             "metabolic_tax": 0.035
         },
         {
-            "__variant__": "Poor Efficiency",
+            "variant": "Poor Efficiency",
             "metabolic_tax": 0.1
         }
     ]

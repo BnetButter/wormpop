@@ -3,7 +3,7 @@
 #%%
 
 """
-USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>] [ --variants=<string> ]
+USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>] [ --variants=<string> ] [ --report-individuals ] [ --socket=<string> ]
 """
 
 import pathlib
@@ -16,7 +16,13 @@ import docopt
 import collections
 import functools
 import os
+import math
 import numpy as np
+import websockets
+import sys
+from websockets.server import WebSocketServerProtocol
+
+from typing import *
 
 from sqlalchemy import (
     create_engine,
@@ -43,6 +49,7 @@ parameters = args["--parameters"]
 database = args["--database"] if args["--database"] is not None else ":memory:"
 name = args["--name"] if args["--name"] is not None else "Simulation"
 directory = args["--directory"] if args["--directory"] is not None else "Simulation"
+report_individuals = args["--report-individuals"]
 
 # Constants:
 
@@ -80,9 +87,14 @@ LARVAL_STARVE_PROB = param['LARVAL_STARVE_PROB']  # Chance to cheat death by sta
 # Dauer constants
 MIN_DAUER_MASS = param['MIN_DAUER_MASS']  # ~137 ng
 MAX_DAUER_MASS = param['MAX_DAUER_MASS']  # ~456 ng
-DAUER_THRESHOLD = param['DAUER_THRESHOLD']  # Concentration (mg/mL) that scales probability of dauering = 250,000 ng total food available
-DAUER_RATE = param['DAUER_RATE']  # Number of days at 0 food concentration for a larva to have a 50% chance of dauering/starving
+
+
+#DAUER_THRESHOLD = param['DAUER_THRESHOLD']  # Concentration (mg/mL) that scales probability of dauering = 250,000 ng total food availablea
+#DAUER_RATE = param['DAUER_RATE']  # Number of days at 0 food concentration for a larva to have a 50% chance of dauering/starving
+
 DAUER_EXIT_PROB = param['DAUER_EXIT_PROB']  # Chance per timestep to exit dauer, based on empirical data
+
+DOUBLE_FEED_INTERVAL_DAYS = param["DOUBLE_FEED_INTERVAL_DAYS"]
 
 # Bag constants
 BAG_THRESHOLD = param['BAG_THRESHOLD']  # mg/mL (=2500 ng)
@@ -135,7 +147,14 @@ gompertzTau = 0.85 * (gompertzLS / gompertzN)
 
 
 
+WORLD_MAX_X = param["WORLD_MAX_X"]
+WORLD_MAX_Y = param["WORLD_MAX_Y"]
 
+def normal():
+    normal_distribution = np.random.normal()
+    # Clip the distribution to the range [-1, 1]
+    clipped_distribution = np.clip(normal_distribution, -1, 1)
+    return clipped_distribution
 
 def egg_curve(x, Y, genome: "Genome"):
     Y = Y/4
@@ -214,7 +233,11 @@ class Genome(Base):
     eggM: float = Column(Float, default=1)
     eggScale: float = Column(Float, default=1)
 
+    # # Number of days at 0 food concentration for a larva to have a 50% chance of dauering/starving
+    dauer_rate = Column(Float, default=2)
 
+    # Concentration (mg/mL) that scales probability of dauering = 250,000 ng total food availablea
+    dauer_threshold = Column(Float, default=0.05)
     @classmethod
     def get_schema(cls):
         schema = {}
@@ -278,10 +301,15 @@ class Simulation:
     instance: "Simulation" = None
     variants = []
 
+    location_history = []
+
+    clients: Set[WebSocketServerProtocol] = set()
+
+
     def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None):
-        self.worms = Worms()
+        self.worms: List[Worm] = Worms()
         self.worms.initialize_worms(number_worms, starting_stage)
-        self.dead = Dead_worms()
+        self.dead: List[Worm] = Dead_worms()
         self.food = starting_food
         self.food_concentration = self.food / 1e6 / FLASK_VOLUME  # convert to mg / mL
         self.food_history = [self.food_concentration] # Used to keep track of how much food each worm has seen
@@ -295,6 +323,17 @@ class Simulation:
         self.variants = []
         self.worm_count = [] # list of number of worms in each timestep
 
+    
+    async def serve(self, socket: WebSocketServerProtocol, path: str):
+        print("connected")
+        try:
+            self.clients.add(socket)
+            #await socket.send(json.dumps(self.location_history))
+            async for _ in socket:
+                pass # clients only listen
+        finally:
+            self.clients.remove(socket)
+
     @classmethod
     def load_variants(cls, data: dict, session):
         for d in data["variants"]:
@@ -306,7 +345,7 @@ class Simulation:
         session.commit()
 
 
-    def iterate_once(self):
+    async def iterate_once(self):
         """Meat and potatoes algorithm of the simulation.
         
         At each timestep:
@@ -327,6 +366,11 @@ class Simulation:
         
         # Age worms
         self.worms.ageup()
+
+        # Halve the feeding schedule
+        global FEEDING_SCHEDULE
+        if self.time / 24 % DOUBLE_FEED_INTERVAL_DAYS == 0:
+            FEEDING_SCHEDULE *= 2
 
         # Cull/add bacteria, if applicable:
         if self.time % CULLING_SCHEDULE == 0: self.cull(PERCENT_CULL)
@@ -349,9 +393,28 @@ class Simulation:
 
         self.worm_count.append(len(self.worms))
 
+        
+        self.worms.move()
+
+        new_location = [w.get_location_history() for w in self.worms]
+
+
+        self.location_history.append(new_location)
+
         # Report outcome of timestep
         self.report()
 
+        await self.broadcast_new_location(new_location)
+
+        await asyncio.sleep(1/120)
+
+
+    async def broadcast_new_location(self, new_location):
+        for client in list(self.clients):
+            try:
+                await client.send(json.dumps(new_location))
+            except:
+                print("Error sending message to client", file=sys.stderr)
 
     def cull(self, percent):
         """Periodic culling
@@ -561,7 +624,7 @@ class Simulation:
             writer.writerow(data)
 
 
-    def run(self):
+    async def run(self):
         """Run function
         
         Run simulation for set number of timesteps (three hour increments)
@@ -584,7 +647,7 @@ class Simulation:
         self.report(header=True) # Initial conditions/header for output file
 
         for i in range(1, self.length):
-            self.iterate_once()
+            await self.iterate_once()
             if self.timestep % 10 == 0:
                 print('{} Timesteps, Food = {} mg/mL, {} Worms Alive, {} Worms Dead'.format(self.timestep, round(self.food_concentration,2), len(self.worms), len(self.dead)))
 
@@ -610,7 +673,11 @@ class Worms(list):
         
         for i in range(number_worms):
             name = 'worm_' + str(i + 1)
-            self.append(stagedict[starting_stage](name))
+
+            pos = [random.randint(0, WORLD_MAX_X), random.randint(0, WORLD_MAX_Y)]
+            genome = random.choice(Simulation.variants)
+
+            self.append(stagedict[starting_stage](name, pos, genome))
         self.total_worm_number = number_worms
     
     def ageup(self):
@@ -696,6 +763,11 @@ class Worms(list):
         
         self += [w('worm_' + str(self.total_worm_number + i + 1)) for i, w in enumerate(flat_list)]
         self.total_worm_number += len(flat_list)
+    
+
+    def move(self):
+        for w in self:
+            w.move()
 
 
 
@@ -803,17 +875,16 @@ class Worm:
 
     genome: Genome # Just a type hint
 
-
-    def __init__(self, name, genome=None):
+    def __init__(self, name, start_pos, genome):
         self.name = name
         self._eggs_laid = 0
+        self.pos = start_pos
+        self.genome = genome
+        self.speed = 0
 
         # self.genome = random.sample([NormalAppetite, FatWorm, SkinnyWorm])
 
-        choices = Simulation.variants
 
-        if not hasattr(self, "genome"):
-            self.genome = genome if genome else choices[random.randint(0, len(choices))]
 
     def cull_maybe(self):
         roll = random.rand()
@@ -822,6 +893,27 @@ class Worm:
     
     def ageup(self):
         self.age += TIMESTEP
+
+    def move(self):
+        pass
+
+    def _move(self, x: int, y: int):
+        # check within world bound
+        if self.pos[0] + x < 0 or self.pos[0] + x >= WORLD_MAX_X:
+            x *= -1
+        if self.pos[1] + y < 0 or self.pos[1] + y >= WORLD_MAX_Y:
+            y *= -1
+
+        self.pos[0] += x
+        self.pos[1] += y
+    
+    def get_location_history(self) -> dict:
+        return {
+            "name": self.name,
+            "pos": self.pos,
+            "stage": type(self).__name__,
+            "stage_short": type(self).__name__[0].upper(), 
+        }
 
     @die_wrapper
     def die(self, cause_of_death):
@@ -856,14 +948,20 @@ class Egg(Worm):
     Eggs are set at a mass of 65 ng by default and hatch after 15 hours (5 timesteps)
     
     """
-    def __init__(self, name, *args, **kwargs):
-        super().__init__(name, *args, **kwargs)
+    def __init__(self, name, start_pos, genome, *args, **kwargs):
+        super().__init__(name, start_pos, genome, *args, **kwargs)
         self.mass = EGGMASS
         self.stage = 'egg'
         self.age = 0
         self.eggs_laid = 0
         self.egg_age = 0 # Eggs hatch after 15 hours, and larvae are born at age 0
-      
+       
+
+    def move(self):
+        """
+        Eggs don't move
+        """
+        pass 
 
     def ageup(self):
         self.egg_age += TIMESTEP
@@ -881,7 +979,7 @@ class Egg(Worm):
         """After 5 timesteps, an egg becomes a larva
         """
         self.__class__ = Larva
-        self.__init__(self.name)
+        self.__init__(self.name, self.pos, self.genome)
 
 LarvaToDauerSet, LarvaToDauerGet = CreateCounter()
 LarvaToAdultSet, LarvaToAdultGet = CreateCounter()
@@ -893,7 +991,7 @@ class Larva(Worm):
     a set time and if in a specific mass range.
 
     """
-    def __init__(self, name, *args, **kwargs):
+    def __init__(self, name, pos, genome, *args, **kwargs):
         self.stage = 'larva'
         self.can_dauer = False
         self.eggs_laid = 0
@@ -903,7 +1001,13 @@ class Larva(Worm):
         if not hasattr(self, 'age'): self.age = 0
         if not hasattr(self, 'larval_age'): self.larval_age = 0
         self.p_awaken = None
-        super(Larva, self).__init__(name)
+        super(Larva, self).__init__(name, pos, genome)
+    
+    def move(self):
+        speed = 5
+        dx, dy = normal() * speed, normal() * speed
+        self._move(dx, dy)
+
 
     def ageup(self):
         self.age += TIMESTEP
@@ -1001,7 +1105,7 @@ class Larva(Worm):
         dauer_multiplier = 1 #self.dauer_pheremone_function(Simulation.instance.worm_count)
 
         # Check dauer/starvation:
-        self.p_starve = (1 / DAUER_RATE) * math.exp(-0.5 * (current_food + prev_food) / DAUER_THRESHOLD) * dauer_multiplier
+        self.p_starve = (1 / self.genome.dauer_rate) * math.exp(-0.5 * (current_food + prev_food) / self.genome.dauer_threshold) * dauer_multiplier
         
         
 
@@ -1043,14 +1147,14 @@ class Larva(Worm):
         """Enter dauer diapause
         """
         self.__class__ = Dauer
-        self.__init__(self.name)
+        self.__init__(self.name, self.pos, self.genome)
     
     @LarvaToAdultSet
     def molt(self):
         """Mature to adult
         """
         self.__class__ = Adult
-        self.__init__(self.name)
+        self.__init__(self.name, self.pos, self.genome)
 
 
 DauerToLarvaSet, DauerToLarvaGet = CreateCounter()
@@ -1071,14 +1175,24 @@ class Dauer(Worm):
     TODO Dauer pheromone
 
     """
-    def __init__(self, name):
+    def __init__(self, name, start_pos, genome):
         self.stage = 'dauer'
         self.has_dauered = True
         self.eggs_laid = 0
         if not hasattr(self, 'mass'): self.mass = STANDARD_LARVA_MASS
         if not hasattr(self, 'age'): self.age = 15 # assuming 30 hours from parlad bagginng -> 15 hours for eggs to hatch, 15 hours for dauers to develop
         self.p_starve = None
-        super(Dauer, self).__init__(name)
+        
+        super(Dauer, self).__init__(name, start_pos, genome)
+
+    
+    def move(self):
+        """
+        
+        Dauers don't move"""
+        pass
+        
+  
 
     def make_checks(self, current_food, prev_food):
         """Dauers check if conditions are safe to exit dauer. Currently I'm treating dauers as immortal
@@ -1097,8 +1211,7 @@ class Dauer(Worm):
     @DauerToLarvaSet
     def exit_dauer(self):
         self.__class__ = Larva
-        self.__init__(self.name)
-
+        self.__init__(self.name, self.pos, self.genome)
 
 AdultToBagSet, AdultToBagGet = CreateCounter()
 
@@ -1120,7 +1233,7 @@ class Adult(Worm):
     TODO Apportion of somatic vs germ mass - fixed value or just based on growth and egg-laying curves?
     """
 
-    def __init__(self, name):
+    def __init__(self, name, pos, genome):
         self.stage = 'adult'
         self.adult_age = 0
         self.total_egg_mass = 0
@@ -1128,7 +1241,7 @@ class Adult(Worm):
         self.note = 'Min adult mass set to {}'.format(self.min_somatic_mass)
         self.bag_rate = BAG_RATE
         self.bag_threshold = BAG_THRESHOLD
-        super(Adult, self).__init__(name)
+        super(Adult, self).__init__(name, pos, genome)
 
     def ageup(self):
         self.age += TIMESTEP
@@ -1139,6 +1252,12 @@ class Adult(Worm):
 
     def get_maintenance(self):
         self.maintenance = self.mass * self.genome.metabolic_tax
+    
+
+    def move(self):
+        speed = 10
+        dx, dy = normal() * speed, normal() * speed
+        self._move(dx, dy)
 
 
     def get_growth_mass(self, food_conc):
@@ -1262,14 +1381,15 @@ class Adult(Worm):
     def lay_egg(self, number):
         self.eggs_laid += number
 
-        Egg_partial = functools.partial(Egg, genome=self.genome)
+        Egg_partial = functools.partial(Egg, genome=self.genome, start_pos=list(self.pos))
 
         return [Egg_partial] * int(number)
 
     @AdultToBagSet
     def bag(self):
         self.__class__ = Parlad
-        self.__init__(self.name)
+        self.__init__(self.name, self.pos, self.genome)
+
 
 def CountParladToDauer():
     num_parlads = 0
@@ -1303,7 +1423,7 @@ class Parlad(Worm):
     Number of dauers generated is based on mass, reduced by an efficiency parameter (.66 by default)
 
     """
-    def __init__(self, name):
+    def __init__(self, name, pos, genome):
         self.stage = 'parlad'
         self.lifespan = self.age
         self.cause_of_death = ('bag')
@@ -1311,8 +1431,15 @@ class Parlad(Worm):
         self.dauer_potential = int((self.mass * BAG_EFFICIENCY) // STANDARD_LARVA_MASS)
         self.mass_decrement = self.mass / (30 / TIMESTEP) # Will lose this much mass per timestep (converted into dauers) down to 0
         self.note = 'Will burst into {} dauers in 30 hours'.format(self.dauer_potential)
-        super(Parlad, self).__init__(name)
+        super(Parlad, self).__init__(name, pos, genome)
         assert self.mass > 0, f"{self.total_egg_mass - (self.eggs_laid * EGGMASS)}, {self.genome}"
+
+    def move(self):
+        # Do Parlads move?
+        speed = 10
+        dx, dy = normal() * speed, normal() * speed
+        self._move(dx, dy)
+
 
     def tax(self):
         """Rather than paying "metabolic tax," going to use this to keep track of mass as it is consumed by matricidal hatching
@@ -1325,7 +1452,10 @@ class Parlad(Worm):
         assert self.mass > 0
         released_dauers = []
         if self.age - self.lifespan >= 30:
-            released_dauers.extend([Dauer]*self.dauer_potential)
+
+            dauer_init = functools.partial(Dauer, genome=self.genome, start_pos=list(self.pos))
+
+            released_dauers.extend([dauer_init]*self.dauer_potential)
             self.mass = self.mass - self.dauer_potential * STANDARD_LARVA_MASS
             assert self.mass > 0, f"{self.dauer_potential} dauers released from {self.name} but mass is {self.mass}"
             self.die('bag')
@@ -1361,7 +1491,7 @@ class Dead(Worm):
         if not hasattr(self, 'cause_of_death'): self.cause_of_death =  cause_of_death
         if not hasattr(self, 'lifespan'): self.lifespan = self.age
         self.note = 'Lifespan: {} days, Cause of death: {}'.format(self.lifespan / 24, self.cause_of_death)
-        super(Dead, self).__init__(name)
+        super(Dead, self).__init__(name, self.pos, self.genome)
 
 #%%
 
@@ -1376,9 +1506,10 @@ Dauer.CULL_PERCENT = DAUER_CULL_PERCENT
 Adult.CULL_PERCENT = ADULT_CULL_PERCENT
 Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
-def main():
 
 
+
+async def main():
     if args["--variants"]:
         variants_file = args["--variants"]
         with open(variants_file) as fp:
@@ -1396,12 +1527,41 @@ def main():
     Base.metadata.create_all(engine)
 
     # Open the session
+
+    
+
     Session = sessionmaker(bind=engine)
     with Session() as session:
         Simulation.load_variants(variants_data, session)
-
-        Simulation.instance = test = Simulation(directory, connection=session, report_individuals=True)    
-        test.run()
+        Simulation.instance = test = Simulation(directory, connection=session, report_individuals=report_individuals)
+    
+        if args["--socket"]:
+            port = int(args["--socket"])
+            print("Server started on port", port)
+            async with websockets.serve(test.serve, "localhost", port) as server:
+                await test.run()
+        else:
+            await test.run()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    main_task = loop.create_task(main())
+
+    def cleanup(task: asyncio.Task):
+        # retrieve the exception
+        
+        if task.exception():
+            stack = task.get_stack()
+            if stack:
+                frame = stack[-1]
+                filename = frame.f_code.co_filename
+                lineno = frame.f_lineno
+
+                print(f"Error: {task.exception()} at {filename}:{lineno}")
+            exit()
+
+    main_task.add_done_callback(cleanup)
+
+    loop.run_forever()
