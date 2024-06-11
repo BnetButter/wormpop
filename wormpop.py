@@ -220,6 +220,48 @@ def get_column_default(column):
     return column.default.arg
 
 
+def distance(a, b):
+    return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+
+def move_towards_food(agent_pos, food_pos, speed):
+    # Extract coordinates
+    x, y = agent_pos
+    x_f, y_f = food_pos
+    
+    # Calculate the Euclidean distance
+    distance = math.sqrt((x_f - x)**2 + (y_f - y)**2)
+    
+    # Calculate the unit vector components
+    unit_vector_x = (x_f - x) / distance
+    unit_vector_y = (y_f - y) / distance
+    
+    # Calculate the movement vector components
+    move_x = speed * unit_vector_x
+    move_y = speed * unit_vector_y
+    
+    # Update the agent's position
+
+    return move_x, move_y
+
+
+class Food:
+    """
+    Represents a food lawn
+    """
+
+    def __init__(self, pos, amount):
+        self.pos = pos
+        self.amount = amount
+        self.radius = 500 # size of the food lawn
+        self.my_worms = {}
+        self.summed_appetite = 0
+        self.food_history = [self.food_concentration]
+    
+    @property
+    def food_concentration(self):
+        return self.amount / 1e6 / FLASK_VOLUME
+
+
 
 class Genome(Base):
     __tablename__ = "Genome"
@@ -305,14 +347,36 @@ class Simulation:
 
     clients: Set[WebSocketServerProtocol] = set()
 
+    food_location: List[Food] = [ Food([random.randint(0, WORLD_MAX_X), random.randint(0, WORLD_MAX_Y)], STARTING_FOOD/10) for _ in range(10) ]
+
+    @classmethod
+    def get_food_location(cls):
+        return [
+            {
+                "pos": food.pos,
+                "amount": food.amount,
+            } for food in cls.food_location
+        ]
+
+    @classmethod
+    def nearest_food(cls, pos):
+        return min(cls.food_location, key=lambda f: distance(f.pos, pos))
+
+    @classmethod
+    def update_food_lawn(cls, worms: "Worms"):
+        for food in cls.food_location:
+            food.my_worms = {}
+        
+        for worm in worms:
+            nearest_food = cls.nearest_food(worm.pos)
+            nearest_food.my_worms[worm.name] = worm
+        
 
     def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None):
         self.worms: List[Worm] = Worms()
         self.worms.initialize_worms(number_worms, starting_stage)
         self.dead: List[Worm] = Dead_worms()
-        self.food = starting_food
-        self.food_concentration = self.food / 1e6 / FLASK_VOLUME  # convert to mg / mL
-        self.food_history = [self.food_concentration] # Used to keep track of how much food each worm has seen
+ 
         self.path = pathlib.Path(output_location)
         self.timestep = 0
         self.time = 0
@@ -322,6 +386,14 @@ class Simulation:
         self.bulk_data = []
         self.variants = []
         self.worm_count = [] # list of number of worms in each timestep
+    
+    @property
+    def food(self):
+        return sum(food.amount for food in self.food_location)
+
+    @property
+    def food_concentration(self):
+        return self.food / 1e6 / FLASK_VOLUME
 
     
     async def serve(self, socket: WebSocketServerProtocol, path: str):
@@ -374,28 +446,37 @@ class Simulation:
 
         # Cull/add bacteria, if applicable:
         if self.time % CULLING_SCHEDULE == 0: self.cull(PERCENT_CULL)
-        if self.time % FEEDING_SCHEDULE == 0: self.food += FEEDING_AMOUNT
+
+        
+        # Add food and randomize location
+        if self.time % FEEDING_SCHEDULE == 0:
+            for food in self.food_location:
+                food.pos = [random.randint(0, WORLD_MAX_X), random.randint(0, WORLD_MAX_Y)]
+                food.amount += FEEDING_AMOUNT / len(self.food_location)
+        self.worms.move()
+        
+        self.update_food_lawn(self.worms)
+
 
         # Calculate appetite
-        self.food_concentration = self.food / 1e6 / FLASK_VOLUME # Convert from nanograms to mg/mL
-        self.food_history.append(self.food_concentration)
-        self.worms.compute_appetite(self.food_concentration) # For simplicity, worms only detect environment once at the start of each time step
+        
 
+        self.worms.compute_appetite() # For simplicity, worms only detect environment once at the start of each time step
+
+        for food_lawn in self.food_location:
+            food_lawn.food_history.append(food_lawn.food_concentration)
         # Feed worms, grow worms
-        amount_consumed = self.worms.eat(self.food)
-        self.food -= amount_consumed
-
+        self.worms.eat()
+        
         # Metabolic upkeep
         self.worms.tax()
         
         # Run Checks
-        self.worms.make_checks(self.food_history) # Using food concentration detected before feeding so you're only starving if you didn't get enough to eat
+        self.worms.make_checks() # Using food concentration detected before feeding so you're only starving if you didn't get enough to eat
 
         self.worm_count.append(len(self.worms))
-
+            
         
-        self.worms.move()
-
         new_location = [w.get_location_history() for w in self.worms]
 
 
@@ -404,15 +485,18 @@ class Simulation:
         # Report outcome of timestep
         self.report()
 
-        await self.broadcast_new_location(new_location)
+        await self.broadcast_new_location(new_location, Simulation.get_food_location())
 
         await asyncio.sleep(1/120)
 
 
-    async def broadcast_new_location(self, new_location):
+    async def broadcast_new_location(self, new_location, food_location):
         for client in list(self.clients):
             try:
-                await client.send(json.dumps(new_location))
+                await client.send(json.dumps({
+                    "worms": new_location,
+                    "food": food_location
+                }))
             except:
                 print("Error sending message to client", file=sys.stderr)
 
@@ -427,7 +511,9 @@ class Simulation:
         pct_cull = percent / 100
 
         self.worms.cull(pct_cull)
-        self.food -= self.food * pct_cull
+        for food_lawn in Simulation.food_location:
+            food_lawn.amount *= (1 - pct_cull)
+
 
     
     def report(self, header=False):
@@ -697,7 +783,7 @@ class Worms(list):
                 w.cull_maybe()
      
     #@profile
-    def compute_appetite(self, food_concentration):
+    def compute_appetite(self):
         """Appetite based on growth mass + egg mass + cost of living
         
         Only larvae and adults actually eat and grow, and only adults lay eggs.
@@ -714,18 +800,22 @@ class Worms(list):
         
         """
 
-        for w in self:
-            w.sensed_food = food_concentration
-            w.get_growth_mass(food_concentration)
-            w.get_egg_mass(food_concentration)
-            w.get_maintenance()
-            w.appetite = (w.growth_mass + w.desired_egg_mass + w.maintenance) / METABOLIC_EFFICIENCY # Previous model only adjusts growth and egg mass by efficiency,
-                                                                                                     # so this is a change I am making. Will be good to compare
+        for food_lawn in Simulation.food_location:
+            appetite = 0
+            for name, worm in food_lawn.my_worms.items():
+                worm.sensed_food = food_lawn.food_concentration
+                worm.get_growth_mass(food_lawn.food_concentration)
+                worm.get_egg_mass(food_lawn.food_concentration)
+                worm.get_maintenance()
+                worm.appetite = (worm.growth_mass + worm.desired_egg_mass + worm.maintenance) / METABOLIC_EFFICIENCY
+                appetite += worm.appetite
 
-        self.summed_appetite = numpy.sum(numpy.array([w.appetite for w in self]))
+
+            food_lawn.summed_appetite = appetite
+        
 
 
-    def eat(self, bacterial_mass):
+    def eat(self):
         """Worms eat as much as they can based on their growth requirements and appetites of other worms.
 
         Confused about how portion is handled in the previous model, since portion is calculated and then a second restriction:
@@ -735,19 +825,24 @@ class Worms(list):
         
         Returns total amount consumed
         """
-        if bacterial_mass > self.summed_appetite:
-            for w in self:
-                w.portion = w.appetite
-                w.eat(w.portion)
-            return self.summed_appetite
-        
-        else:
-            for w in self:
-                w.portion = (w.appetite / self.summed_appetite) * bacterial_mass
-                w.eat(w.portion)
-            return bacterial_mass
 
-    def make_checks(self, food_history):
+
+
+        for food_lawn in Simulation.food_location:
+            mass = food_lawn.amount
+            if mass > food_lawn.summed_appetite or food_lawn.summed_appetite == 0:
+                for name, worm in food_lawn.my_worms.items():
+                    worm.portion = worm.appetite
+                    worm.eat(worm.portion)
+                food_lawn.amount -= food_lawn.summed_appetite
+            else:
+                for name, worm in food_lawn .my_worms.items():
+                    worm.portion = (worm.appetite / food_lawn.summed_appetite) * mass
+                    worm.eat(worm.portion)
+                food_lawn.amount = 0
+
+
+    def make_checks(self):
         """Runs checks applicable to each worm
 
         Since this is the only way for new worms to enter the simulation, each check function returns an empty list if there are no new 
@@ -755,14 +850,17 @@ class Worms(list):
         to the Worms object.
         """
         
-        current_food = food_history[-1]
-        prev_food = food_history[-2]
 
-        new_arrivals = [w.make_checks(current_food, prev_food) for w in self]
-        flat_list = [w for new in new_arrivals for w in new]
-        
-        self += [w('worm_' + str(self.total_worm_number + i + 1)) for i, w in enumerate(flat_list)]
-        self.total_worm_number += len(flat_list)
+        for food_lawn in Simulation.food_location:
+            
+            current_food = food_lawn.food_history[-1]
+            prev_food = food_lawn.food_history[-2]
+
+            new_arrivals = [w.make_checks(current_food, prev_food) for _, w in food_lawn.my_worms.items()]
+       
+            flat_list = [item for sublist in new_arrivals for item in sublist]
+            self += [w('worm_' + str(self.total_worm_number + i + 1)) for i, w in enumerate(flat_list)]
+            self.total_worm_number += len(flat_list)
     
 
     def move(self):
@@ -1256,7 +1354,12 @@ class Adult(Worm):
 
     def move(self):
         speed = 10
-        dx, dy = normal() * speed, normal() * speed
+        closest_food = Simulation.nearest_food(self.pos)
+        dx, dy = move_towards_food(self.pos, closest_food.pos, speed)
+
+        dx += speed * normal()
+        dy += speed * normal()
+
         self._move(dx, dy)
 
 
@@ -1436,8 +1539,9 @@ class Parlad(Worm):
 
     def move(self):
         # Do Parlads move?
-        speed = 10
+        speed = 0
         dx, dy = normal() * speed, normal() * speed
+
         self._move(dx, dy)
 
 
