@@ -3,7 +3,7 @@
 #%%
 
 """
-USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>] [ --variants=<string> ]
+USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string> ] [--directory=<string>] [ --variants=<string> ] [ --socket=<port> ] [ --report-individuals ]
 """
 
 import pathlib
@@ -17,6 +17,9 @@ import collections
 import functools
 import os
 import numpy as np
+import typing
+
+from typing import *
 
 from sqlalchemy import (
     create_engine,
@@ -24,7 +27,8 @@ from sqlalchemy import (
     Integer,
     String,
     Float,
-    ForeignKey
+    ForeignKey,
+    DateTime
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import (
@@ -134,9 +138,6 @@ gompertzA = gompertzLS * (math.exp(gompertzN) - 1)
 gompertzTau = 0.85 * (gompertzLS / gompertzN)
 
 
-
-
-
 def egg_curve(x, Y, genome: "Genome"):
     Y = Y/4
     dt = TIMESTEP / 24 # dt = timestep length in days
@@ -242,24 +243,67 @@ class WormTimestep(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     Worm_Name = Column(String)
     Timestep = Column(Integer)
+    Available_Food = Column(Float)
     Age_hours = Column(Float)
+    Age_days = Column(Float)
     Stage = Column(String)
     Mass = Column(Float)
-    Egg_Mass = Column(Float)
-    Eggs_Laid = Column(Integer)
-    Available_Food = Column(Float)
     Total_Appetite = Column(Float)
+    Amount_Eaten = Column(Float)
+    Metabolic_Efficiency_Loss = Column(Float) # NEW FIELD
     Desired_Growth = Column(Float)
+    Actual_Growth = Column(Float) # NEW FIELD
     Desired_Eggs = Column(Float)
     Actual_Egg_Investment = Column(Float)
+    Egg_Mass = Column(Float)
+    Eggs_Laid = Column(Integer)
+    Eggs_Laid_Timestep = Column(Integer) # NEW FIELD
     Metabolic_Cost = Column(Float)
-    Amount_Eaten = Column(Float)
     Chance_of_Starvation = Column(Float)
     Chance_of_Dauer_Awakening = Column(Float)
     Chance_of_Death = Column(Float)
+    Able_To_Dauer = Column(Integer) # NEW FIELD
     Notes = Column(String)
     Variant = Column(String)
 
+class WormSummary(Base):
+    __tablename__ = "worm_summary"
+    Worm_Name = Column(String, primary_key=True)
+    Larva_span_days = Column(Float)
+    Dauer_span_days = Column(Float)
+    LarvaPostDauer_span_days = Column(Float)
+    Adult_span_days = Column(Float)
+    Parlad_span_days = Column(Float)
+    Life_span_days = Column(Float)
+
+    Total_Food_Consumed = Column(Float)
+    Total_Eggs_Laid = Column(Integer)
+    Total_Mass = Column(Float)
+    Total_Body_Mass = Column(Float)
+    Total_Egg_Mass = Column(Float, default=0)
+
+    Total_Metabolic_Cost = Column(Float)
+    Total_Metabolic_Tax = Column(Float)
+    Parlad_Mass_Converted = Column(Float)
+    Reproductive_Span = Column(Float)
+    Cause_of_Death = Column(String)
+
+    def __init__(self, Worm_Name):
+        super().__init__(Worm_Name=Worm_Name)
+        self.Total_Food_Consumed = 0
+        self.Total_Eggs_Laid = 0
+        self.Total_Egg_Mass = 0
+        self.Total_Body_Mass = 0
+        self.Total_Metabolic_Cost = 0
+        self.Total_Metabolic_Tax = 0
+        self.Parlad_Mass_Converted = 0
+
+
+class SimulationSummary(Base):
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(DateTime)
+    commit = Column(String)
+    
 
 class Simulation:
     """Totality of the environment
@@ -394,7 +438,7 @@ class Simulation:
         ]
 
         if self.report_individuals:
-
+            w:Worm
             for w in self.worms:
                 w.note = 'Born at timestep {}'.format(self.timestep) if not hasattr(w, 'note') else w.note
 
@@ -423,7 +467,13 @@ class Simulation:
                     Chance_of_Dauer_Awakening=w.p_awaken, 
                     Chance_of_Death=w.p_death,
                     Notes=w.note,
-                    Variant=w.genome.variant
+                    Variant=w.genome.variant,
+                    Metabolic_Efficiency_Loss=w._metabolic_efficiency_loss,
+                    Age_days = w.age / 24,
+                    Actual_Growth = w._actual_growth,
+                    Able_To_Dauer = w.can_dauer,
+                    Eggs_Laid_Timestep = w._eggs_laid_timestep
+
                 )
 
                 self.bulk_data.append(wormts)
@@ -559,6 +609,16 @@ class Simulation:
             writer = csv.writer(fp, delimiter="\t")
             data = [self.timestep] + [ counter[variant.variant] for variant in Simulation.variants ]
             writer.writerow(data)
+    
+
+    def on_simulation_end(self):
+        for worm in self.worms:
+            worm.die("end_of_simulation")
+        
+
+
+        self.connection.bulk_save_objects(self.bulk_data)
+        self.connection.commit()
 
 
     def run(self):
@@ -587,6 +647,8 @@ class Simulation:
             self.iterate_once()
             if self.timestep % 10 == 0:
                 print('{} Timesteps, Food = {} mg/mL, {} Worms Alive, {} Worms Dead'.format(self.timestep, round(self.food_concentration,2), len(self.worms), len(self.dead)))
+        
+     
 
 class Worms(list):
     """Class for holding all worms in the simulation
@@ -737,6 +799,7 @@ def create_death_counter():
             "old_age": 0,
             "culled": 0,
             "bag": 0,
+            "end_of_simulation": 0,
         }
 
     return {
@@ -802,11 +865,27 @@ class Worm:
     
 
     genome: Genome # Just a type hint
+    can_dauer = False
+    # For Reporting
+    _metabolic_efficiency_loss = 0
+    _actual_growth = 0
+    _eggs_laid_timestep = 0
 
+    _age_hours_entered_larva = 0
+    _age_hours_entered_adult = 0
+    _age_hours_entered_larva_after_dauer = 0
+    _age_hours_entered_parlad = 0
+    _age_hours_entered_dauer = 0
+    _eggs_laid = 0
+    
+    
+
+    _summary_table: typing.Optional[WormSummary] = None
+    
 
     def __init__(self, name, genome=None):
         self.name = name
-        self._eggs_laid = 0
+        self._summary_table = WormSummary(self.name) if self._summary_table is None else self._summary_table
 
         # self.genome = random.sample([NormalAppetite, FatWorm, SkinnyWorm])
 
@@ -825,8 +904,63 @@ class Worm:
 
     @die_wrapper
     def die(self, cause_of_death):
+        if cause_of_death == "bag":
+            self._summary_table.Parlad_span_days = (self.age - self._age_hours_entered_parlad) / 24
+        
+        self._summary_table.Cause_of_Death = cause_of_death
+        self._summary_table.Total_Body_Mass = self.mass
+        self._summary_table.Total_Eggs_Laid = getattr(self, "eggs_laid", 0)
+
+
+
+        if type(self) == Egg:
+            pass
+        elif type(self) == Larva:
+            if not getattr(self, "has_dauered", False):
+                self._summary_table.Larva_span_days = (self.age - self._age_hours_entered_larva) / 24
+            else:
+                self._summary_table.LarvaPostDauer_span_days = (self.age - self._age_hours_entered_larva_after_dauer) / 24
+        elif type(self) == Dauer:
+            self._summary_table.Dauer_span_days = (self.age - self._age_hours_entered_dauer) / 24
+        elif type(self) == Adult:
+            self._summary_table.Adult_span_days = (self.age - self._age_hours_entered_adult) / 24
+        elif type(self) == Parlad:
+            self._summary_table.Parlad_span_days = (self.age - self._age_hours_entered_parlad) / 24
+        
+        self._summary_table.Life_span_days = self.age / 24
+
+        egg_history = getattr(self, "egg_history", [])
+        if egg_history:
+            tstart = 0
+            tend = 0
+            for timestep, egg in egg_history:
+                if egg:
+                    tstart = timestep
+                    break 
+            for timestep, egg in reversed(egg_history):
+                if egg:
+                    tend = timestep
+                    break
+            self._summary_table.Reproductive_Span = TIMESTEP*(tend - tstart) / 24
+        else:
+            pass
+            
+        self._summary_table.Total_Mass = (
+            self._summary_table.Total_Body_Mass 
+            + self._summary_table.Total_Egg_Mass 
+            + self._summary_table.Total_Metabolic_Cost 
+            + self._summary_table.Total_Metabolic_Tax 
+            + (0 if self._summary_table.Parlad_Mass_Converted is None else self._summary_table.Parlad_Mass_Converted)
+        )
+
         self.__class__ = Dead
         self.__init__(self.name, cause_of_death)
+
+
+        # Cache the summary table to be committed later
+        Simulation.instance.bulk_data.append(self._summary_table)
+
+            
 
     def tax(self):
         pass
@@ -880,6 +1014,7 @@ class Egg(Worm):
     def hatch(self):
         """After 5 timesteps, an egg becomes a larva
         """
+        self._age_hours_entered_larva = self.age
         self.__class__ = Larva
         self.__init__(self.name)
 
@@ -910,7 +1045,9 @@ class Larva(Worm):
         self.larval_age += TIMESTEP
 
     def tax(self):
-        self.mass -= self.mass * self.genome.metabolic_tax
+        metabolic_tax = self.mass * self.genome.metabolic_tax
+        self._summary_table.Total_Metabolic_Tax += metabolic_tax
+        self.mass -= metabolic_tax
         assert self.mass > 0, "tax"
 
     def get_maintenance(self):
@@ -950,8 +1087,14 @@ class Larva(Worm):
         assert self.growth_mass >= 0
 
     def eat(self, amount):
-        self.mass += amount * METABOLIC_EFFICIENCY * self.genome.appetite
 
+        self._summary_table.Total_Food_Consumed += amount
+        self._summary_table.Total_Metabolic_Cost += amount - (amount * METABOLIC_EFFICIENCY)
+
+        self._metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
+        curr_mass = self.mass
+        self.mass += amount * METABOLIC_EFFICIENCY
+        self._actual_growth = self.mass - curr_mass
 
     @staticmethod
     def dauer_pheremone_function(num_worms):
@@ -1042,13 +1185,22 @@ class Larva(Worm):
     def dauer(self):
         """Enter dauer diapause
         """
+        self._summary_table.Larva_span_days = (self.age - self._age_hours_entered_larva) / 24
+        self._age_hours_entered_dauer = self.age
         self.__class__ = Dauer
         self.__init__(self.name)
     
     @LarvaToAdultSet
     def molt(self):
-        """Mature to adult
         """
+        Mature to adult
+        """
+        if not getattr(self, 'has_dauered', False):
+            self._summary_table.Larva_span_days = (self.age - self._age_hours_entered_larva) / 24
+        else:
+            self._summary_table.LarvaPostDauer_span_days = (self.age - self._age_hours_entered_larva_after_dauer) / 24
+
+        self._age_hours_entered_adult = self.age
         self.__class__ = Adult
         self.__init__(self.name)
 
@@ -1096,6 +1248,8 @@ class Dauer(Worm):
     
     @DauerToLarvaSet
     def exit_dauer(self):
+        self._summary_table.Dauer_span_days = (self.age - self._age_hours_entered_dauer) / 24
+        self._age_hours_entered_larva_after_dauer = self.age
         self.__class__ = Larva
         self.__init__(self.name)
 
@@ -1128,6 +1282,7 @@ class Adult(Worm):
         self.note = 'Min adult mass set to {}'.format(self.min_somatic_mass)
         self.bag_rate = BAG_RATE
         self.bag_threshold = BAG_THRESHOLD
+        self.egg_history: List[Tuple[int, int]] = []
         super(Adult, self).__init__(name)
 
     def ageup(self):
@@ -1135,6 +1290,7 @@ class Adult(Worm):
         self.adult_age += TIMESTEP
 
     def tax(self):
+        self._summary_table.Total_Metabolic_Tax += self.mass * self.genome.metabolic_tax
         self.mass -= self.mass * self.genome.metabolic_tax
 
     def get_maintenance(self):
@@ -1192,8 +1348,15 @@ class Adult(Worm):
         self.desired_egg_mass = eggs * EGGMASS
 
     def eat(self, amount):
+        self._summary_table.Total_Food_Consumed += amount
+        self._summary_table.Total_Metabolic_Cost += amount - (amount * METABOLIC_EFFICIENCY)
+        
+        self._metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
+
+        curr_mass = self.mass
         self.mass += amount * METABOLIC_EFFICIENCY
         self.convert_mass()
+        self._actual_growth = self.mass - curr_mass
 
     def convert_mass(self):
         """Allocates consumed mass to eggsf
@@ -1210,15 +1373,13 @@ class Adult(Worm):
         """
         if (self.mass - self.desired_egg_mass) >= self.min_somatic_mass:
             self.actual_egg_mass = self.desired_egg_mass
-        elif self.mass > self.min_somatic_mass:
-            self.actual_egg_mass = self.mass - self.min_somatic_mass
-            self.note = 'Dipped into fat stores'
         else:
             self.actual_egg_mass = 0
 
         self.mass -= self.actual_egg_mass
         assert self.mass > 0, "mass > actual_egg_mass"
         self.total_egg_mass += self.actual_egg_mass
+        self._summary_table.Total_Egg_Mass += self.actual_egg_mass
 
     #@profile
     def make_checks(self, current_food, prev_food):
@@ -1262,12 +1423,19 @@ class Adult(Worm):
     def lay_egg(self, number):
         self.eggs_laid += number
 
-        Egg_partial = functools.partial(Egg, genome=self.genome)
+        self.egg_history.append((
+            number,
+            Simulation.instance.timestep
+        ))
 
+        Egg_partial = functools.partial(Egg, genome=self.genome)
+        self._eggs_laid_timestep = int(number)
         return [Egg_partial] * int(number)
 
     @AdultToBagSet
     def bag(self):
+        self._summary_table.Adult_span_days = (self.age - self._age_hours_entered_adult) / 24
+        self._age_hours_entered_parlad = self.age
         self.__class__ = Parlad
         self.__init__(self.name)
 
@@ -1326,12 +1494,13 @@ class Parlad(Worm):
         released_dauers = []
         if self.age - self.lifespan >= 30:
             released_dauers.extend([Dauer]*self.dauer_potential)
-            self.mass = self.mass - self.dauer_potential * STANDARD_LARVA_MASS
+            new_mass = self.mass - self.dauer_potential * STANDARD_LARVA_MASS
+            self._summary_table.Total_Body_Mass -= new_mass
+            self._summary_table.Parlad_Mass_Converted = self.dauer_potential * STANDARD_LARVA_MASS
             assert self.mass > 0, f"{self.dauer_potential} dauers released from {self.name} but mass is {self.mass}"
             self.die('bag')
 
         return released_dauers
-
 
 def create_dead_mass_counter():
     
@@ -1399,9 +1568,11 @@ def main():
     Session = sessionmaker(bind=engine)
     with Session() as session:
         Simulation.load_variants(variants_data, session)
-
-        Simulation.instance = test = Simulation(directory, connection=session, report_individuals=True)    
-        test.run()
+        Simulation.instance = test = Simulation(directory, connection=session, report_individuals=args["--report-individuals"])    
+        try:
+            test.run()
+        finally:
+            test.on_simulation_end()
 
 if __name__ == "__main__":
     main()
