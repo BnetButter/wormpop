@@ -18,7 +18,8 @@ import functools
 import os
 import numpy as np
 import typing
-
+import datetime
+import subprocess
 from typing import *
 
 from sqlalchemy import (
@@ -116,8 +117,13 @@ DAUER_CULL_PERCENT = param['DAUER_CULL_PERCENT']
 ADULT_CULL_PERCENT = param['ADULT_CULL_PERCENT']
 PARLAD_CULL_PERCENT = param['PARLAD_CULL_PERCENT']
 
+
+L1_ARREST_ENTER_THRESHOLD = param["L1_ARREST_ENTER_THRESHOLD"]
+L1_ARREST_EXIT_THRESHOLD = param["L1_ARREST_EXIT_THRESHOLD"]
+
 # You can now use these constants in your simulation code
 GENOME_VERSION = "0.1"
+
 
 # Constants for logistic growth formula:
 Kr = 1.78027908103543
@@ -137,6 +143,16 @@ gompertzLS = 21 * 24 # Roughly average lifespan (days). Equivalent to the 168 ti
 gompertzA = gompertzLS * (math.exp(gompertzN) - 1)
 gompertzTau = 0.85 * (gompertzLS / gompertzN)
 
+def starve_from_l1_arrest(num_days):
+    L = 98.09173354410315
+    x0 = 17.484181571141384
+    k = -0.47620124366404964
+
+        # Define the reverse sigmoid function
+    def reverse_sigmoid(x, L, x0, k):
+        return L / (1 + np.exp(-k * (x - x0)))
+
+    return reverse_sigmoid(num_days, L, x0, k)
 
 def egg_curve(x, Y, genome: "Genome"):
     Y = Y/4
@@ -214,6 +230,8 @@ class Genome(Base):
     eggN: float = Column(Float, default=1)
     eggM: float = Column(Float, default=1)
     eggScale: float = Column(Float, default=1)
+    
+    dauer_probability = Column(Float, default=0)
 
 
     @classmethod
@@ -300,10 +318,165 @@ class WormSummary(Base):
 
 
 class SimulationSummary(Base):
+    __tablename__ = "simulation_summary"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(DateTime)
-    commit = Column(String)
+    Timestamp = Column(DateTime)
+    Commit = Column(String)
+    RepoURL = Column(String)
+    Branch = Column(String)
+    Experimentor = Column(String, default=os.environ.get("USER", 'default_user'))
+
+    Num_Timestep = Column(Integer)
+
+    # 1. Bacteria all
+    Bacteria_In_mg = Column(Float)
+    Bacteria_Culled_mg = Column(Float) 
+    Bacteria_Culled_Percent = Column(Float)
+
+    Bacteria_to_worm_ingested_mg = Column(Float)
+    Bacteria_to_worm_ingested_percent = Column(Float) # TODO
+    Bacteria_to_worm_somatic_mass_mg = Column(Float)
+    Bacteria_to_worm_somatic_mass_percent = Column(Float) # TODO
     
+    Bacteria_to_worm_eggs_mg = Column(Float)
+    Bacteria_to_worm_eggs_percent = Column(Float) # TODO
+    Bacteria_to_worm_metabolic_tax_mg = Column(Float)
+    Bacteria_to_worm_metabolic_tax_percent = Column(Float) #TODO
+
+    Bacteria_to_worm_metabolic_inefficiency_mg = Column(Float)
+    Bacteria_to_worm_metabolic_inefficiency_percent = Column(Float) # TODO
+    
+    Bacteria_remaining_mg = Column(Float)
+    Bacteria_average = Column(Float) # TODO
+    Bacteria_max = Column(Float) # TODO
+    Bacteria_min = Column(Float) # TODO
+
+    Worms_born_dauer = Column(Integer)
+    Worms_born_dauer_percent = Column(Float)
+    Worms_born_egg = Column(Integer)
+    Worms_born_egg_percent = Column(Float)
+
+    
+    Worms_died_cull = Column(Integer)
+    Worms_died_cull_percent = Column(Float)
+    Worms_died_starvation = Column(Integer)
+    Worms_died_starvation_percent = Column(Float)
+    Worms_died_bag = Column(Integer)
+    Worms_died_bag_percent = Column(Integer)
+    Worms_died_old_age = Column(Integer)
+    Worms_died_old_age_percent = Column(Float)
+    Worms_died_arrested_development = Column(Integer)
+    Worms_died_arrested_development_percent = Column(Float)
+
+
+    Worms_alive_at_last_timestep = Column(Integer)
+    Worms_dead_at_last_timestep = Column(Integer)
+
+
+    Worms_Laid_Eggs_no = Column(Integer)
+    Worms_Laid_Eggs_percent = Column(Integer) # TODO
+    Worms_average_laid_eggs = Column(Integer) # TODO
+    Worms_average_repro_span = Column(Float) # TODO
+    Worms_average_repro_span_exclude_culled = Column(Float) #TODO
+    Worms_average_repro_span_excude_culled_starve = Column(Float) #TODO
+
+    Average_dauer_no = Column(Float) # TODO
+    Average_Dauer_percent = Column(Float) # TODO
+    Average_Dauer_from_Parlads = Column(Float) # TODO
+    Average_Dauer_from_Parlads_percent = Column(Float) #TODO
+
+    Average_Dauer_from_Larvae = Column(Float) #TODO
+    Average_Dauer_from_Larvae_percent = Column(Float) #TODO
+
+    Timestep_with_highest_population = Column(Integer) #TODO
+    Maximum_population_number = Column(Integer) # TODO
+    Lowest_population_number_after_max = Column(Integer) #TODO
+    Lowest_population_number_after_max_timestep = Column(Integer) #TODO
+
+    Average_number_of_worms = Column(Float) # TODO
+    Average_number_of_adults = Column(Float) # TODO
+    Average_number_of_parlads = Column(Float) # TODO
+    Average_number_of_larva = Column(Float) # TODO
+    Average_number_of_eggs = Column(Float) # TODO
+    Average_number_of_dauer = Column(Float) # TODO
+
+    def __init__(self):
+        self.Timestamp = datetime.datetime.now()
+        self.Commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('utf-8')
+        self.RepoURL = subprocess.check_output(["git", "config", "--get", "remote.origin.url"]).strip().decode('utf-8')
+        self.Branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip().decode('utf-8')
+        
+        self.Num_Timestep = Column(Integer)
+
+        self.Bacteria_In_mg = STARTING_FOOD
+        self.Bacteria_Culled_mg = 0
+        self.Bacteria_Culled_Percent = 0
+
+        self.Bacteria_to_worm_ingested_mg = 0
+        self.Bacteria_to_worm_ingested_percent = 0
+        self.Bacteria_to_worm_somatic_mass_mg = 0
+        self.Bacteria_to_worm_somatic_mass_percent = 0
+        
+        self.Bacteria_to_worm_eggs_mg = 0
+        self.Bacteria_to_worm_eggs_percent = 0
+        self.Bacteria_to_worm_metabolic_tax_mg = 0
+        self.Bacteria_to_worm_metabolic_tax_percent = 0
+
+        self.Bacteria_to_worm_metabolic_inefficiency_mg = 0
+        self.Bacteria_to_worm_metabolic_inefficiency_percent = 0
+        
+        self.Bacteria_remining_mg = 0
+        self.Bacteria_average = 0
+        self.Bacteria_max = 0
+        self.Bacteria_min = 0
+
+        self.Worms_born_dauer = 0
+        self.Worms_born_dauer_percent = 0
+        self.Worms_born_egg = 0
+        self.Worms_born_egg_percent = 0
+        
+        self.Worms_died_cull = 0
+        self.Worms_died_cull_percent = 0
+        self.Worms_died_starvation = 0
+        self.Worms_died_starvation_percent = 0
+        self.Worms_died_bag = 0
+        self.Worms_died_bag_percent = 0
+        self.Worms_died_old_age = 0
+        self.Worms_died_old_age_percent = 0
+        self.Worms_died_arrested_development = 0
+        self.Worms_died_arrested_development_percent = 0
+        self.Worms_alive_at_last_timestep = 0
+        self.Worms_dead_at_last_timestep = 0
+
+        self.Worms_Laid_Eggs_no = 0
+        self.Worms_Laid_Eggs_percent = 0
+        self.Worms_average_laid_eggs = 0
+        self.Worms_average_repro_span = 0
+        self.Worms_average_repro_span_exclude_culled = 0
+        self.Worms_average_repro_span_excude_culled_starve = 0
+
+        self.Average_dauer_no = 0
+        self.Average_Dauer_percent = 0
+        self.Average_Dauer_from_Parlads = 0
+        self.Average_Dauer_from_Parlads_percent = 0
+
+        self.Average_Dauer_from_Larvae = 0
+        self.Average_Dauer_from_Larvae_percent = 0
+
+        self.Timestep_with_highest_population = 0
+        self.Maximum_population_number = 0
+        self.Lowest_population_number_after_max = 0
+        self.Lowest_population_number_after_max_timestep = 0
+
+        self.Average_number_of_worms = 0
+        self.Average_number_of_adults = 0
+        self.Average_number_of_parlads = 0
+        self.Average_number_of_larva = 0
+        self.Average_number_of_eggs = 0
+        self.Average_number_of_dauer = 0
+
+
 
 class Simulation:
     """Totality of the environment
@@ -339,6 +512,9 @@ class Simulation:
         self.variants = []
         self.worm_count = [] # list of number of worms in each timestep
 
+        self._summary = SimulationSummary()
+        self.worms_that_laid_eggs = set()
+
     @classmethod
     def load_variants(cls, data: dict, session):
         for d in data["variants"]:
@@ -373,8 +549,12 @@ class Simulation:
         self.worms.ageup()
 
         # Cull/add bacteria, if applicable:
-        if self.time % CULLING_SCHEDULE == 0: self.cull(PERCENT_CULL)
-        if self.time % FEEDING_SCHEDULE == 0: self.food += FEEDING_AMOUNT
+        if self.time % CULLING_SCHEDULE == 0: 
+            self.cull(PERCENT_CULL)
+
+        if self.time % FEEDING_SCHEDULE == 0:
+            self._summary.Bacteria_In_mg += FEEDING_AMOUNT
+            self.food += FEEDING_AMOUNT
 
         # Calculate appetite
         self.food_concentration = self.food / 1e6 / FLASK_VOLUME # Convert from nanograms to mg/mL
@@ -408,7 +588,12 @@ class Simulation:
         pct_cull = percent / 100
 
         self.worms.cull(pct_cull)
-        self.food -= self.food * pct_cull
+        culled = self.food * pct_cull
+        Simulation.instance._summary.Bacteria_Culled_mg += culled
+        Simulation.instance._summary.Bacteria_Culled_Percent = Simulation.instance._summary.Bacteria_Culled_mg / Simulation.instance._summary.Bacteria_In_mg
+        self.food -= culled
+
+
 
     
     def report(self, header=False):
@@ -485,7 +670,7 @@ class Simulation:
                 self.bulk_data = []
                 self.connection.commit()
 
-        self.dead.extend([w for w in self.worms if w.stage == 'dead'])
+        self.dead.extend([w for w in self.worms if type(w) == 'dead'])
         self.worms[:] = [w for w in self.worms if w.stage != 'dead']
 
         # Group reporting:
@@ -493,10 +678,10 @@ class Simulation:
         if header:
             with open(self.summary_path, 'w+') as file:
                 file.write('\t'.join(['Timestep','Time (hours)','Time (days)', 'Food Mass (ng)', 'Food Conc (mg/mL)', 'Number Worms', 'Number Eggs','Number Larvae', 'Number Dauer',
-                'Number Adults', 'Number Parlads','Number Dead','Total Worm Mass (ng)','Egg Mass','Larva Mass','Dauer Mass','Adult Mass','Parlad Mass','Dead Mass','Eggs Laid',
-                'Died of old age', 'Died of starvation','Died of bagging','Died of predation','Died of arrested development'])+'\n')
+                'Number Adults', 'Number Parlads',"Number L1 Arrest", 'Number Dead','Total Worm Mass (ng)','Egg Mass','Larva Mass','Dauer Mass','Adult Mass','Parlad Mass','Dead Mass','Eggs Laid',
+                'Died of old age', 'Died of starvation','Died of bagging','Died of predation','Died of arrested development', ])+'\n')
 
-        stages = ['egg','larva','dauer','adult','parlad']
+        stages = ['egg','larva','dauer','adult','parlad', 'L1_Arrest']
         current_stages = numpy.array([w.stage for w in self.worms])
         stagecounts = [numpy.count_nonzero(current_stages==stage) for stage in stages]
         
@@ -544,6 +729,9 @@ class Simulation:
         death_metrics = die_ind, die_mass = die_reporter()
         parlad_to_dauer, parlad_to_dauer_mass = ParladToDauerGet()
 
+        larva_to_l1, larva_to_l1_mass = LarvaToL1ArrestGet()
+        l1_to_larva, l1_to_larva_mass = L1ArrestToLarvaGet()
+
 
 
         if header:
@@ -558,6 +746,8 @@ class Simulation:
                     "dauer_to_larva", "darva_to_larva_mass", 
                     "adult_laid_egg", "adult_laid_egg_mass",
                     "parlad_to_dauer", "parlad_to_dauer_mass",
+                    "larva_to_l1arrest", "larva_to_l1arrest_mass",
+                    "l1arrest_to_larva", "l1arrest_to_larva_mass",
                 
                 ])
             
@@ -586,7 +776,9 @@ class Simulation:
                     adult_to_bag, adult_to_bag_mass,
                     dauer_to_larva, dauer_to_larva_mass,
                     eggs_laid, eggs_laid * EGGMASS,
-                    parlad_to_dauer, parlad_to_dauer_mass
+                    parlad_to_dauer, parlad_to_dauer_mass,
+                    larva_to_l1, larva_to_l1_mass,
+                    l1_to_larva, l1_to_larva_mass
             ])
         
         with open(self.death_transition, "a+") as fp:
@@ -612,10 +804,29 @@ class Simulation:
     
 
     def on_simulation_end(self):
-        for worm in self.worms:
-            worm.die("end_of_simulation")
-        
+        self._summary.Num_Timestep = self.timestep
+        self._summary.Bacteria_remaining_mg = self.food
+        alive = self._summary.Worms_alive_at_last_timestep = len(self.worms)
+        dead = self._summary.Worms_dead_at_last_timestep = len(self.dead)
 
+        if dead:
+            self._summary.Worms_died_cull_percent = self._summary.Worms_died_cull / dead
+            self._summary.Worms_died_bag_percent = self._summary.Worms_died_bag / dead
+            self._summary.Worms_died_starvation_percent = self._summary.Worms_died_starvation / dead
+            self._summary.Worms_died_old_age_percent = self._summary.Worms_died_old_age / dead
+            self._summary.Worms_died_arrested_development_percent = self._summary.Worms_died_arrested_development / dead
+        
+        total_born = self._summary.Worms_born_egg + self._summary.Worms_born_dauer
+        if total_born:
+            self._summary.Worms_born_egg_percent = self._summary.Worms_born_egg / total_born
+            self._summary.Worms_born_dauer_percent = self._summary.Worms_born_dauer / total_born
+        
+        self._summary.Worms_Laid_Eggs_no = len(self.worms_that_laid_eggs)
+        if alive + dead:
+            self._summary.Worms_Laid_Eggs_percent = self._summary.Worms_Laid_Eggs_no / (alive + dead)
+
+        self.connection.add(self._summary)
+        self.connection.commit()
 
         self.connection.bulk_save_objects(self.bulk_data)
         self.connection.commit()
@@ -808,6 +1019,7 @@ def create_death_counter():
         "Adult": create_cause_of_death(),
         "Dauer": create_cause_of_death(),
         "Parlad": create_cause_of_death(),
+        "L1Arrest": create_cause_of_death(),
     }
 
 def CreateDeathCounter():
@@ -866,6 +1078,9 @@ class Worm:
 
     genome: Genome # Just a type hint
     can_dauer = False
+
+    can_arrest = False
+    has_arrested = False
     # For Reporting
     _metabolic_efficiency_loss = 0
     _actual_growth = 0
@@ -877,6 +1092,7 @@ class Worm:
     _age_hours_entered_parlad = 0
     _age_hours_entered_dauer = 0
     _eggs_laid = 0
+    
     
     
 
@@ -910,6 +1126,21 @@ class Worm:
         self._summary_table.Cause_of_Death = cause_of_death
         self._summary_table.Total_Body_Mass = self.mass
         self._summary_table.Total_Eggs_Laid = getattr(self, "eggs_laid", 0)
+
+        if cause_of_death == "culled":
+            Simulation.instance._summary.Worms_died_cull += 1
+        elif cause_of_death == "starvation":
+            Simulation.instance._summary.Worms_died_starvation += 1
+        elif cause_of_death == "bag":
+            Simulation.instance._summary.Worms_died_bag += 1
+        elif cause_of_death == "old_age":
+            Simulation.instance._summary.Worms_died_old_age += 1
+        elif cause_of_death == "arrested_development":
+            Simulation.instance._summary.Worms_died_arrested_development += 1
+
+
+
+ 
 
 
 
@@ -1021,6 +1252,9 @@ class Egg(Worm):
 LarvaToDauerSet, LarvaToDauerGet = CreateCounter()
 LarvaToAdultSet, LarvaToAdultGet = CreateCounter()
 
+LarvaToL1ArrestSet, LarvaToL1ArrestGet = CreateCounter()
+L1ArrestToLarvaSet, L1ArrestToLarvaGet = CreateCounter()
+
 class Larva(Worm):
     """Second stage
 
@@ -1039,6 +1273,11 @@ class Larva(Worm):
         if not hasattr(self, 'larval_age'): self.larval_age = 0
         self.p_awaken = None
         super(Larva, self).__init__(name)
+
+    @LarvaToL1ArrestSet
+    def l1_arrest(self):
+        self.__class__ = L1Arrest
+        self.__init__(self.name)
 
     def ageup(self):
         self.age += TIMESTEP
@@ -1087,11 +1326,18 @@ class Larva(Worm):
         assert self.growth_mass >= 0
 
     def eat(self, amount):
+        metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
+
+        Simulation.instance._summary.Bacteria_to_worm_ingested_mg += amount/1e6
+        Simulation.instance._summary.Bacteria_to_worm_metabolic_inefficiency_mg += metabolic_efficiency_loss / 1e6
+        Simulation.instance._summary.Bacteria_to_worm_somatic_mass_mg = amount * METABOLIC_EFFICIENCY / 1e6
+        
+
 
         self._summary_table.Total_Food_Consumed += amount
-        self._summary_table.Total_Metabolic_Cost += amount - (amount * METABOLIC_EFFICIENCY)
+        self._summary_table.Total_Metabolic_Cost += metabolic_efficiency_loss
 
-        self._metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
+        self._metabolic_efficiency_loss = metabolic_efficiency_loss
         curr_mass = self.mass
         self.mass += amount * METABOLIC_EFFICIENCY
         self._actual_growth = self.mass - curr_mass
@@ -1135,13 +1381,25 @@ class Larva(Worm):
         if self.larval_age <= 3:
             prev_food = current_food # Wasn't born when last food concentration check occurred, only knows current concentration
 
+        
+
         if self.mass > MIN_DAUER_MASS and self.mass < MAX_DAUER_MASS and not hasattr(self, 'has_dauered'):
             self.can_dauer = True
         else:
             self.can_dauer = False
 
+        if self.mass < MIN_DAUER_MASS and not self.has_arrested and not hasattr(self, 'has_dauered'):
+            if current_food + prev_food < L1_ARREST_ENTER_THRESHOLD:
+                self.l1_arrest()
+                return []
+
+        if self.can_dauer:
+            if random.rand() < self.genome.dauer_probability:
+                self.dauer()
+                return []
 
         dauer_multiplier = 1 #self.dauer_pheremone_function(Simulation.instance.worm_count)
+
 
         # Check dauer/starvation:
         self.p_starve = (1 / DAUER_RATE) * math.exp(-0.5 * (current_food + prev_food) / DAUER_THRESHOLD) * dauer_multiplier
@@ -1203,6 +1461,36 @@ class Larva(Worm):
         self._age_hours_entered_adult = self.age
         self.__class__ = Adult
         self.__init__(self.name)
+
+
+
+
+class L1Arrest(Worm):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stage = 'L1_Arrest'
+        self.has_arrested = True
+        assert not getattr(self, "has_dauered", False), "L1s cannot have dauered"
+
+    def make_checks(self, current_food, prev_food):
+        probability = starve_from_l1_arrest(Simulation.instance.timestep / 24)
+
+        if random.random() > probability:
+            self.die("starvation")
+            return []
+    
+        if current_food + prev_food > L1_ARREST_EXIT_THRESHOLD:
+            self.exit_arrest()
+            return []
+ 
+        return []
+        
+    @L1ArrestToLarvaSet
+    def exit_arrest(self):
+        self.__class__ = Larva
+        self.__init__(self.name)
+
 
 
 DauerToLarvaSet, DauerToLarvaGet = CreateCounter()
@@ -1290,8 +1578,11 @@ class Adult(Worm):
         self.adult_age += TIMESTEP
 
     def tax(self):
-        self._summary_table.Total_Metabolic_Tax += self.mass * self.genome.metabolic_tax
-        self.mass -= self.mass * self.genome.metabolic_tax
+        tax = self.mass * self.genome.metabolic_tax
+        Simulation.instance._summary.Bacteria_to_worm_metabolic_tax_mg += tax / 1e6
+
+        self._summary_table.Total_Metabolic_Tax += tax
+        self.mass -= tax
 
     def get_maintenance(self):
         self.maintenance = self.mass * self.genome.metabolic_tax
@@ -1348,10 +1639,16 @@ class Adult(Worm):
         self.desired_egg_mass = eggs * EGGMASS
 
     def eat(self, amount):
+        metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
+
+        Simulation.instance._summary.Bacteria_to_worm_ingested_mg += amount/1e6
+        Simulation.instance._summary.Bacteria_to_worm_metabolic_inefficiency_mg += metabolic_efficiency_loss/1e6
+        Simulation.instance._summary.Bacteria_to_worm_somatic_mass_mg = amount * METABOLIC_EFFICIENCY / 1e6
+
         self._summary_table.Total_Food_Consumed += amount
-        self._summary_table.Total_Metabolic_Cost += amount - (amount * METABOLIC_EFFICIENCY)
+        self._summary_table.Total_Metabolic_Cost += metabolic_efficiency_loss
         
-        self._metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
+        self._metabolic_efficiency_loss = metabolic_efficiency_loss
 
         curr_mass = self.mass
         self.mass += amount * METABOLIC_EFFICIENCY
@@ -1375,6 +1672,9 @@ class Adult(Worm):
             self.actual_egg_mass = self.desired_egg_mass
         else:
             self.actual_egg_mass = 0
+        
+        Simulation.instance._summary.Bacteria_to_worm_eggs_mg += self.actual_egg_mass / 1e6
+
 
         self.mass -= self.actual_egg_mass
         assert self.mass > 0, "mass > actual_egg_mass"
@@ -1430,8 +1730,11 @@ class Adult(Worm):
 
         Egg_partial = functools.partial(Egg, genome=self.genome)
         self._eggs_laid_timestep = int(number)
-        return [Egg_partial] * int(number)
-
+        Simulation.instance._summary.Worms_born_egg = int(number)
+        result = [Egg_partial] * int(number)
+        if result:
+            Simulation.instance.worms_that_laid_eggs.add(self.name)
+        return result
     @AdultToBagSet
     def bag(self):
         self._summary_table.Adult_span_days = (self.age - self._age_hours_entered_adult) / 24
@@ -1493,7 +1796,11 @@ class Parlad(Worm):
         assert self.mass > 0
         released_dauers = []
         if self.age - self.lifespan >= 30:
+            
+            Simulation.instance._summary.Worms_born_dauer += self.dauer_potential            
+
             released_dauers.extend([Dauer]*self.dauer_potential)
+
             new_mass = self.mass - self.dauer_potential * STANDARD_LARVA_MASS
             self._summary_table.Total_Body_Mass -= new_mass
             self._summary_table.Parlad_Mass_Converted = self.dauer_potential * STANDARD_LARVA_MASS
