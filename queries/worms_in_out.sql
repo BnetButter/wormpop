@@ -1,78 +1,42 @@
--- V Worms all
+SELECT
+    -- Count unique number of worms
+    (SELECT COUNT(DISTINCT Worm_Name) FROM worm_summary) AS unique_worm_count,
 
--- 14 - Count unique number of worms
-SELECT COUNT(DISTINCT Worm_Name) AS unique_worm_count
-FROM worm_summary;
+    -- Count total body mass of worms in ng
+    (SELECT SUM(Total_Body_Mass) FROM worm_summary) AS total_body_mass_sum,
 
+    -- Count born as dauer
+    (SELECT COUNT(*) FROM worm_summary WHERE Dauer_span_days IS NOT NULL AND Larva_span_days IS NULL) AS BORN_DAUER,
 
--- 14a - Count total body mass of worms in ng
-SELECT SUM(Total_Body_Mass) AS total_body_mass_sum
-FROM worm_summary
+    -- Count mass of born as dauer
+    (SELECT SUM(Total_Body_Mass) FROM worm_summary WHERE Dauer_span_days IS NOT NULL AND Larva_span_days IS NULL) AS BORN_DAUER_MASS_NG,
 
+    -- Count born as egg
+    (SELECT COUNT(*) FROM worm_summary WHERE Larva_span_days IS NOT NULL) AS BORN_EGG,
 
---17 - Count born as dauer by counting the number of worms that have a Dauer_span_days but not a Larva_span_days
-SELECT COUNT(*) AS BORN_DAUER
-FROM worm_summary
-WHERE Dauer_span_days IS NOT NULL and Larva_span_days IS NULL
+    -- Count mass of worms born as egg
+    (SELECT SUM(Total_Body_Mass) FROM worm_summary WHERE Larva_span_days IS NOT NULL) AS BORN_EGG_MASS,
 
--- 17a Count by mass of born as dauer
-SELECT SUM(Total_Body_Mass) AS BORN_DAUER_MASS_NG
-FROM worm_summary
-WHERE Dauer_span_days IS NOT NULL and Larva_span_days IS NULL
+    -- Count all dead worms
+    (SELECT COUNT(*) FROM worms WHERE Notes LIKE "%Cause of Death%") AS DEAD_WORM_COUNT,
 
+    -- Count all worms died by culled
+    (SELECT COUNT(*) FROM worms WHERE Notes LIKE "%culled%") AS DEAD_WORM_CULLED_COUNT,
 
--- 18 - Count born as egg by counting the number of worms that have a Larva_span_days
-SELECT SUM(Total_Body_Mass) AS BORN_EGG
-FROM worm_summary
-WHERE  Larva_span_days IS NOT NULL
+    -- Count mass of worms died by culled
+    (SELECT SUM(Mass) FROM worms WHERE Notes LIKE "%culled%") AS DEAD_WORM_CULLED_MASS,
 
--- 18a - Count mass of worms born as egg by counting the number of worms that have a Larva_span_days
-SELECT COUNT(*) AS BORN_EGG_MASS
-FROM worm_summary
-WHERE  Larva_span_days IS NOT NULL
+    -- Count all worms died by starvation
+    (SELECT COUNT(*) FROM worms WHERE Notes LIKE "%starve%") AS DEAD_WORM_STARVE_COUNT,
 
+    -- Count mass of worms died by starvation
+    (SELECT SUM(Mass) FROM worms WHERE Notes LIKE "%starve%") AS DEAD_WORM_STARVE_MASS,
 
--- 19  Count all dead worms:
-SELECT COUNT(*) AS DEAD_WORM_COUNT
-FROM worms
-WHERE Notes LIKE "%Cause of Death%"
+    -- Count all worms died by old age
+    (SELECT COUNT(*) FROM worms WHERE Notes LIKE "%old age%") AS DEAD_WORM_OLD_AGE_COUNT,
 
--- 19a Count all worms died by culled
-SELECT COUNT(*) AS DEAD_WORM_CULLED_COUNT
-FROM worms
-WHERE Notes LIKE "%culled%"
+    -- Count mass of worms died by old age
+    (SELECT SUM(Mass) FROM worms WHERE Notes LIKE "%old age%") AS DEAD_WORM_OLD_AGE_MASS,
 
--- 19a_m Count all worms died by culled mass
-SELECT SUM(Mass) AS DEAD_WORM_CULLED_MASS
-FROM worms
-WHERE Notes LIKE "%culled%"
-
--- 19b Count all worms died by starvation
-SELECT COUNT(*) AS DEAD_WORM_STARVE_COUNT
-FROM worms
-WHERE Notes LIKE "%starve%"
-
--- 19b_m Count all worms died by starvation mass
-SELECT SUM(Mass) AS DEAD_WORM_STARVE_MASS
-FROM worms
-WHERE Notes LIKE "%starve%"
-
-
--- 19c Count all worms died by old age
-SELECT COUNT(*) AS DEAD_WORM_COUNT
-FROM worms
-WHERE Notes LIKE "%old age%"
-
--- 19c_m Count all worms died by old age
-SELECT SUM(Mass) AS DEAD_WORM_MASS
-FROM worms
-WHERE Notes LIKE "%old age%"
-
-
--- 19 Count all dead mass
-SELECT SUM(Mass) AS DEAD_MASS
-FROM worms WHERE Notes LIKE "%Cause of Death%"
-
--- 20 - Count all worms that are alive
-------- NOT IMPLEMENTED IN SQL ------
-
+    -- Count all dead mass
+    (SELECT SUM(Mass) FROM worms WHERE Notes LIKE "%Cause of Death%") AS DEAD_MASS
