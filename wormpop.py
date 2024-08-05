@@ -29,7 +29,9 @@ from sqlalchemy import (
     String,
     Float,
     ForeignKey,
-    DateTime
+    DateTime,
+    MetaData,
+    Table
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import (
@@ -183,6 +185,32 @@ def egg_curve(x, Y, genome: "Genome"):
     else:
         return f4(x)
 
+def create_dynamic_table(metadata, table_name, die_ind):
+    columns = [
+        Column('id', Integer, primary_key=True, autoincrement=True),
+        Column('timestep', Integer, nullable=False)
+    ]
+    
+    for _class, causes in die_ind.items():
+        for cause_of_death in causes.keys():
+            columns.append(Column(f"{_class}_{cause_of_death}_ind", Integer, nullable=False))
+            columns.append(Column(f"{_class}_{cause_of_death}_mass", Float, nullable=False))
+    
+    dynamic_table = Table(table_name, metadata, *columns)
+    return dynamic_table
+
+def create_entry_data(timestep, die_ind, death_metrics):
+    entry_data = {
+        "timestep": timestep
+    }
+    
+    for _class, causes in die_ind.items():
+        for cause_of_death in causes.keys():
+            entry_data[f"{_class}_{cause_of_death}_ind"] = death_metrics[0][_class][cause_of_death]
+            entry_data[f"{_class}_{cause_of_death}_mass"] = death_metrics[1][_class][cause_of_death]
+    
+    return entry_data
+
 
 def CreateCounter():
     counter = 0
@@ -288,6 +316,10 @@ class WormSummary(Base):
     __tablename__ = "worm_summary"
     Worm_Name = Column(String, primary_key=True)
     Larva_span_days = Column(Float)
+
+    L1_span_days = Column(Float)
+    LarvaPost_L1_span_days = Column(Float)
+
     Dauer_span_days = Column(Float)
     LarvaPostDauer_span_days = Column(Float)
     Adult_span_days = Column(Float)
@@ -477,6 +509,30 @@ class SimulationSummary(Base):
         self.Average_number_of_dauer = 0
 
 
+class StageTransition(Base):
+    __tablename__ = 'stage_transition'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestep = Column(Integer, nullable=False)
+    egg_to_larva = Column(Integer, nullable=False)
+    egg_to_larva_mass = Column(Float, nullable=False)
+    larva_to_adult = Column(Integer, nullable=False)
+    larva_to_adult_mass = Column(Float, nullable=False)
+    larva_to_dauer = Column(Integer, nullable=False)
+    larva_to_dauer_mass = Column(Float, nullable=False)
+    adult_to_bag = Column(Integer, nullable=False)
+    adult_to_bag_mass = Column(Float, nullable=False)
+    dauer_to_larva = Column(Integer, nullable=False)
+    dauer_to_larva_mass = Column(Float, nullable=False)
+    adult_laid_egg = Column(Integer, nullable=False)
+    adult_laid_egg_mass = Column(Float, nullable=False)
+    parlad_to_dauer = Column(Integer, nullable=False)
+    parlad_to_dauer_mass = Column(Float, nullable=False)
+    larva_to_l1arrest = Column(Integer, nullable=False)
+    larva_to_l1arrest_mass = Column(Float, nullable=False)
+    l1arrest_to_larva = Column(Integer, nullable=False)
+    l1arrest_to_larva_mass = Column(Float, nullable=False)
+
 
 class Simulation:
     """Totality of the environment
@@ -494,8 +550,9 @@ class Simulation:
     """
     instance: "Simulation" = None
     variants = []
+    dynamic_table = None
 
-    def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None):
+    def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None, engine=None):
         self.worms = Worms()
         self.worms.initialize_worms(number_worms, starting_stage)
         self.dead = Dead_worms()
@@ -509,9 +566,10 @@ class Simulation:
         self.report_individuals = report_individuals
         self.connection = connection
         self.bulk_data = []
+        self.bulk_death_data = [] # death data handled differently
         self.variants = []
         self.worm_count = [] # list of number of worms in each timestep
-
+        self.engine = engine
         self._summary = SimulationSummary()
         self.worms_that_laid_eggs = set()
 
@@ -670,7 +728,7 @@ class Simulation:
                 self.bulk_data = []
                 self.connection.commit()
 
-        self.dead.extend([w for w in self.worms if type(w) == 'dead'])
+        self.dead.extend([w for w in self.worms if w.stage == 'dead'])
         self.worms[:] = [w for w in self.worms if w.stage != 'dead']
 
         # Group reporting:
@@ -733,6 +791,21 @@ class Simulation:
         l1_to_larva, l1_to_larva_mass = L1ArrestToLarvaGet()
 
 
+        transition = StageTransition(
+            timestep=self.timestep,
+            egg_to_larva=egg_to_larva, egg_to_larva_mass=egg_to_larva_mass,
+            larva_to_adult=larva_to_adult, larva_to_adult_mass=larva_to_adult_mass,
+            larva_to_dauer=larva_to_dauer, larva_to_dauer_mass=larva_to_dauer_mass,
+            adult_to_bag=adult_to_bag, adult_to_bag_mass=adult_to_bag_mass,
+            dauer_to_larva=dauer_to_larva, dauer_to_larva_mass=dauer_to_larva_mass,
+            adult_laid_egg=eggs_laid, adult_laid_egg_mass=eggs_laid*EGGMASS,
+            parlad_to_dauer=parlad_to_dauer, parlad_to_dauer_mass=parlad_to_dauer_mass,
+            larva_to_l1arrest=larva_to_l1, larva_to_l1arrest_mass=larva_to_l1_mass,
+            l1arrest_to_larva=l1_to_larva, l1arrest_to_larva_mass=l1_to_larva_mass
+        )
+
+        self.bulk_data.append(transition)
+
 
         if header:
             with open(self.stage_transition, "w") as fp:
@@ -765,6 +838,28 @@ class Simulation:
                 writer = csv.writer(fp, delimiter="\t")
                 fields = ["Timestep"] + [ variant.variant for variant in Simulation.variants ]
                 writer.writerow(fields)
+            
+            metadata = MetaData(bind=self.engine)
+
+            self.dynamic_table = create_dynamic_table(metadata, 'dynamic_stage_transition', die_ind)
+            metadata.create_all()
+
+        
+        
+        death_data = create_entry_data(self.timestep, die_ind, death_metrics)
+
+        self.bulk_death_data.append(death_data)
+
+        if self.timestep % 10 == 0 and self.dynamic_table is not None:
+            self.connection.execute(
+                self.dynamic_table.insert(),
+                self.bulk_death_data
+            )
+            self.bulk_death_data = []
+
+       
+
+
 
                 
         with open(self.stage_transition, "a+") as fp:
@@ -1074,7 +1169,6 @@ class Worm:
     """
 
     CULL_PERCENT = 10
-    
 
     genome: Genome # Just a type hint
     can_dauer = False
@@ -1091,11 +1185,12 @@ class Worm:
     _age_hours_entered_larva_after_dauer = 0
     _age_hours_entered_parlad = 0
     _age_hours_entered_dauer = 0
+
+    _age_hours_entered_l1 = 0
+    _age_hours_entered_larva_after_l1 = 0
+    
     _eggs_laid = 0
     
-    
-    
-
     _summary_table: typing.Optional[WormSummary] = None
     
 
@@ -1147,10 +1242,18 @@ class Worm:
         if type(self) == Egg:
             pass
         elif type(self) == Larva:
+            if self.has_arrested:
+                self._summary_table.LarvaPost_L1_span_days = (self.age - self._age_hours_entered_larva_after_l1) / 24
+            else:
+                self._summary_table.Larva_span_days = (self.age - self._age_hours_entered_larva) / 24
+
             if not getattr(self, "has_dauered", False):
                 self._summary_table.Larva_span_days = (self.age - self._age_hours_entered_larva) / 24
             else:
                 self._summary_table.LarvaPostDauer_span_days = (self.age - self._age_hours_entered_larva_after_dauer) / 24
+
+        elif type(self) == L1Arrest:
+            self._summary_table.L1_span_days = (self.age - self._age_hours_entered_l1) / 24
         elif type(self) == Dauer:
             self._summary_table.Dauer_span_days = (self.age - self._age_hours_entered_dauer) / 24
         elif type(self) == Adult:
@@ -1276,6 +1379,7 @@ class Larva(Worm):
 
     @LarvaToL1ArrestSet
     def l1_arrest(self):
+        self._age_hours_entered_l1 = self.age
         self.__class__ = L1Arrest
         self.__init__(self.name)
 
@@ -1473,6 +1577,8 @@ class L1Arrest(Worm):
         self.has_arrested = True
         assert not getattr(self, "has_dauered", False), "L1s cannot have dauered"
 
+        self._summary_table.Larva_span_days = (self.age - self._age_hours_entered_larva) / 24
+
     def make_checks(self, current_food, prev_food):
         probability = starve_from_l1_arrest(Simulation.instance.timestep / 24)
 
@@ -1488,6 +1594,8 @@ class L1Arrest(Worm):
         
     @L1ArrestToLarvaSet
     def exit_arrest(self):
+        self._summary_table.LarvaPost_L1_span_days = (self.age - self._age_hours_entered_l1) / 24
+        self._age_hours_entered_larva_after_l1 = self.age
         self.__class__ = Larva
         self.__init__(self.name)
 
@@ -1875,7 +1983,7 @@ def main():
     Session = sessionmaker(bind=engine)
     with Session() as session:
         Simulation.load_variants(variants_data, session)
-        Simulation.instance = test = Simulation(directory, connection=session, report_individuals=args["--report-individuals"])    
+        Simulation.instance = test = Simulation(directory, connection=session, report_individuals=args["--report-individuals"], engine=engine)    
         try:
             test.run()
         finally:
