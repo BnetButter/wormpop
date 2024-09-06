@@ -1,0 +1,19 @@
+default branch: development
+
+
+
+download this
+
+run docker: docker run -it -v $(pwd)/Simulation:/app/Simulation wormpop /bin/bash
+    this will start an interactive shell. then you can run the simulation with this
+
+python3 wormpop.py --parameters=constants.json --variants=variants.json --database=database.sqlite
+
+
+run sql query: start docker
+bash run_all_sql.sh Simulation/database.sqlite
+
+Figure out why table is not being populated. Open the database file located in Simulation/database.sqlite
+use DB Browser
+
+Trace through the code and figure out why data is not being written

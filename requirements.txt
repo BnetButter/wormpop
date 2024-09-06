@@ -1,3 +1,5 @@
-flask
-websockets
 docopt
+numpy
+pandas
+sqlalchemy==1.4.4
+
