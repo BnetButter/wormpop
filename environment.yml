@@ -1,0 +1,11 @@
+name: simulation_env
+channels:
+  - defaults
+dependencies:
+  - pip
+  - python=3.9  # or your preferred Python version
+  - pip:
+      - docopt
+      - numpy
+      - pandas
+      - sqlalchemy==1.4.4
