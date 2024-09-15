@@ -5,4 +5,5 @@ simulation
 Simulation/parameters.json
 plots/*
 Simulation/*
+Simulation_old/
 __pycache__

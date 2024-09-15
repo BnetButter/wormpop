@@ -1,6 +1,6 @@
 default branch: development
 
-
+mamba activate wormpop
 
 download this
 
@@ -17,3 +17,4 @@ Figure out why table is not being populated. Open the database file located in S
 use DB Browser
 
 Trace through the code and figure out why data is not being written
+Error likely in wormpop.py
