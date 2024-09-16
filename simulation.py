@@ -88,9 +88,9 @@ class Simulation:
     dynamic_table = None
 
     def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None, engine=None):
-        self.worms = Worms()
+        self.worms = Worm()
         self.worms.initialize_worms(number_worms, starting_stage)
-        self.dead = Dead_worms()
+        self.dead = Dead()
         self.food = starting_food
         self.food_concentration = self.food / 1e6 / FLASK_VOLUME  # convert to mg / mL
         self.food_history = [self.food_concentration] # Used to keep track of how much food each worm has seen

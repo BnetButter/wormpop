@@ -2,8 +2,8 @@
 from sqlalchemy import Column, String, Float
 from sqlalchemy.ext.declarative import declarative_base
 from utils import get_column_default
-
-Base = declarative_base()
+from database import Base
+#Base = declarative_base()
 
 class Genome(Base):
     __tablename__ = "Genome"
