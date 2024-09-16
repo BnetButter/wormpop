@@ -935,6 +935,141 @@ class Dead(Worm):
         self.note = 'Lifespan: {} days, Cause of death: {}'.format(self.lifespan / 24, self.cause_of_death)
         super(Dead, self).__init__(name)
 
+class Worms(list):
+    """Class for holding all worms in the simulation
+
+    Contains methods for things that apply to the whole population, e.g. "Do x to all worms at once."
+
+    Worms object is a list, so it can be iterated through, indexed, and appended to like any other list.
+    """
+
+    def initialize_worms(self, number_worms, starting_stage):
+        """Using this instead of a standard __init__ function so I can easily build and rebuild list.
+
+        Currently only with identical eggs, larvae, and dauers, but could potentially start with mixed population 
+        of randomized ages, masses, etc.
+        """
+        stagedict = {'egg' : Egg,
+                     'larva' : Larva,
+                     'dauer' : Dauer}
+
+        assert starting_stage in stagedict, "Only 'egg', 'larva', and 'dauer' may currently be used as starting stage"
+        
+        for i in range(number_worms):
+            name = 'worm_' + str(i + 1)
+            self.append(stagedict[starting_stage](name))
+        self.total_worm_number = number_worms
+    
+    def ageup(self):
+        [w.ageup() for w in self]
+
+    def tax(self):
+        [w.tax() for w in self]
+
+    def cull(self, percent_chance):
+        """Each living worm has chance of getting culled at each culling interval.
+        """
+
+        for w in self:
+            if w.stage == 'dead':
+                pass
+            else:
+                w.cull_maybe()
+     
+    #@profile
+    def compute_appetite(self, food_concentration):
+        """Appetite based on growth mass + egg mass + cost of living
+        
+        Only larvae and adults actually eat and grow, and only adults lay eggs.
+
+        A little confused here since the paper phrases appetite as "the amount of food
+        [a worm] would eat if food were plentiful," but both growth mass and egg mass are 
+        based on current food availability? Maybe I'm misunderstanding something.
+
+        Probably what is meant by this is something closer to "the amount a worm would eat
+        if it had all the food in the environment to itself," which would make sense since 
+        a worm presumably has knowledge of the food concentration and its desire to grow,
+        but it has less knowledge of how much it will need to share that food (in the model at
+        least, since there are still crowd sensing mechanisms in the real world).
+        
+        """
+
+        for w in self:
+            w.sensed_food = food_concentration
+            w.get_growth_mass(food_concentration)
+            w.get_egg_mass(food_concentration)
+            w.get_maintenance()
+            w.appetite = (w.growth_mass + w.desired_egg_mass + w.maintenance) / METABOLIC_EFFICIENCY # Previous model only adjusts growth and egg mass by efficiency,
+                                                                                                     # so this is a change I am making. Will be good to compare
+
+        self.summed_appetite = numpy.sum(numpy.array([w.appetite for w in self]))
+
+
+    def eat(self, bacterial_mass):
+        """Worms eat as much as they can based on their growth requirements and appetites of other worms.
+
+        Confused about how portion is handled in the previous model, since portion is calculated and then a second restriction:
+        (portion*appetite) / (portion + appetite) appears to be applied. I think this is to keep worms from consuming all the 
+        available food. If we know empirically that worms grow at a certain rate in a certain concentration, then I think it makes
+        the most sense to assume they eat at least that much bacteria, though.
+        
+        Returns total amount consumed
+        """
+        if bacterial_mass > self.summed_appetite:
+            for w in self:
+                w.portion = w.appetite
+                w.eat(w.portion)
+            return self.summed_appetite
+        
+        else:
+            for w in self:
+                w.portion = (w.appetite / self.summed_appetite) * bacterial_mass
+                w.eat(w.portion)
+            return bacterial_mass
+
+    def make_checks(self, food_history):
+        """Runs checks applicable to each worm
+
+        Since this is the only way for new worms to enter the simulation, each check function returns an empty list if there are no new 
+        worms, or a list of class objects of the appropriate worm sublcass (Egg or Dauer, for instance). The new arrivals are then appended
+        to the Worms object.
+        """
+        
+        current_food = food_history[-1]
+        prev_food = food_history[-2]
+
+        new_arrivals = [w.make_checks(current_food, prev_food) for w in self]
+        flat_list = [w for new in new_arrivals for w in new]
+        
+        self += [w('worm_' + str(self.total_worm_number + i + 1)) for i, w in enumerate(flat_list)]
+        self.total_worm_number += len(flat_list)
+
+
+
+class Dead_worms(list):
+    """Testing moving dead worms into this object instead of keeping them with the others to more easily keep track of living worms.
+
+    For the purposes of bookkeeping, parlads are considered "alive" in that they aren't added to this list until they burst. Their lifespan,
+    however, is still determined as the moment at which they starve and bag.
+    """
+
+    #TODO: decide if this class is worth keeping
+    # Might be useful for writing out invdividuals only after they die
+
+    def get_causes_of_death(self):
+        """Return a dictionary keyed by cause of death for all dead worms at given timepoint
+        """
+        causes_of_death = ['old_age','starvation','bag','culled','arrested_development']
+        deathcounts = {}
+        for cause in causes_of_death:
+            deathcounts[cause] = numpy.count_nonzero([w.cause_of_death == cause for w in self if hasattr(w, 'cause_of_death')])
+
+        return deathcounts
+
+    def get_lifespans(self):
+        lifespans = [w.lifespan for w in self]
+        return lifespans
+
 #%%
 
 # TODO - Change Egg Mass efficiency
