@@ -5,6 +5,7 @@ from reporting import CreateCounter, CreateDeathCounter
 from database import WormSummary
 import math
 from genome import Genome
+import typing
 
 constants = load_constants()
 
@@ -126,6 +127,8 @@ def egg_curve(x, Y, genome: "Genome"):
         return (3 - 3*Y) * f3(x) + (3*Y - 2) * f4(x)
     else:
         return f4(x)
+
+die_wrapper, die_reporter = CreateDeathCounter()
 
 class Worm:
     """Individual in simulation/Parent class for other worm states

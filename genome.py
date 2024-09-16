@@ -1,7 +1,7 @@
 # genome.py
 from sqlalchemy import Column, String, Float
 from sqlalchemy.ext.declarative import declarative_base
-from database import get_column_default
+from utils import get_column_default
 
 Base = declarative_base()
 

@@ -1,11 +1,12 @@
 # simulation.py
 import pathlib
 import numpy as np
-from worms import Worms, Dead_worms
-from database import SimulationSummary, Genome
+from worms import Worm, Dead
+from genome import Genome
+from database import SimulationSummary
 from reporting import CreateCounter, CreateDeathCounter
 
-from constants import load_constants
+from config import load_constants
 constants = load_constants()
 
 # Simulation time details
