@@ -1,3 +1,11 @@
+9.15.2024
+Split into multiple seperate modules
+Assume that main MUST be loaded before loading in other classes or modules
+Do this to make code more readable and parseable
+Parameters are very much needed, but can be grouped into main (i.e. where config is loaded), simulation, worms, reporting, and utils
+
+
+9.6.2024
 default branch: development
 
 mamba activate wormpop

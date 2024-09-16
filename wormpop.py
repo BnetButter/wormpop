@@ -1967,8 +1967,6 @@ Adult.CULL_PERCENT = ADULT_CULL_PERCENT
 Parlad.CULL_PERCENT = PARLAD_CULL_PERCENT
 
 def main():
-
-
     if args["--variants"]:
         variants_file = args["--variants"]
         with open(variants_file) as fp:
