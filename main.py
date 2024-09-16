@@ -6,14 +6,14 @@ USAGE: simulation [--parameters=<string>] [ --database=<string> ] [ --name=<stri
 
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-from simulation import Simulation
-from database import Base
 import os
 import json
 import docopt
 import pathlib
+from config import set_config_path
 
 args = docopt.docopt(__doc__)
+#set path of config file so it can be loaded in other modules
 parameters = args["--parameters"]
 set_config_path(parameters)
 

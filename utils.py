@@ -22,3 +22,24 @@ def starve_from_l1_arrest(num_days):
     return reverse_sigmoid(num_days, L, x0, k)
 
 # Other helper functions can be added here
+
+def get_column_default(column):
+    if column.default is None:
+        return None
+    if isinstance(column.default, DefaultClause):
+        if isinstance(column.default.arg, expression.Function):
+            return None
+        return column.default.arg
+    return column.default.arg
+
+def create_entry_data(timestep, die_ind, death_metrics):
+    entry_data = {
+        "timestep": timestep
+    }
+    
+    for _class, causes in die_ind.items():
+        for cause_of_death in causes.keys():
+            entry_data[f"{_class}_{cause_of_death}_ind"] = death_metrics[0][_class][cause_of_death]
+            entry_data[f"{_class}_{cause_of_death}_mass"] = death_metrics[1][_class][cause_of_death]
+    
+    return entry_data

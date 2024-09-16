@@ -5,6 +5,69 @@ from worms import Worms, Dead_worms
 from database import SimulationSummary, Genome
 from reporting import CreateCounter, CreateDeathCounter
 
+from constants import load_constants
+constants = load_constants()
+
+# Simulation time details
+SIMULATION_LENGTH = constants['SIMULATION_LENGTH']  # 800 timesteps = 100 days
+TIMESTEP = constants['TIMESTEP']  # 3 hr per timestep, 8 timesteps per day
+
+# Initial conditions
+STARTING_WORMS = constants['STARTING_WORMS']
+STARTING_STAGE = constants['STARTING_STAGE']  # 'egg'
+EGGMASS = constants['EGGMASS']  # Nanograms
+
+# Adult constants
+MIN_ADULT_MASS = constants['MIN_ADULT_MASS']  # Minimum mass to be an adult (default 800 ng)
+MIN_ADULT_AGE = constants['MIN_ADULT_AGE']  # Minimum age in hours to transition to adult
+MAX_ADULT_AGE = constants['MAX_ADULT_AGE']  # Max age in hours to transition (larvae past this age die of "arrested development")
+
+# Larva constants
+STANDARD_LARVA_MASS = constants['STANDARD_LARVA_MASS']  # ~228 ng
+LARVAL_STARVE_PROB = constants['LARVAL_STARVE_PROB']  # Chance to cheat death by starvation, though starvation is probabilistic
+
+# Dauer constants
+MIN_DAUER_MASS = constants['MIN_DAUER_MASS']  # ~137 ng
+MAX_DAUER_MASS = constants['MAX_DAUER_MASS']  # ~456 ng
+DAUER_THRESHOLD = constants['DAUER_THRESHOLD']  # Concentration (mg/mL) that scales probability of dauering = 250,000 ng total food available
+DAUER_RATE = constants['DAUER_RATE']  # Number of days at 0 food concentration for a larva to have a 50% chance of dauering/starving
+DAUER_EXIT_PROB = constants['DAUER_EXIT_PROB']  # Chance per timestep to exit dauer, based on empirical data
+
+# Bag constants
+BAG_THRESHOLD = constants['BAG_THRESHOLD']  # mg/mL (=2500 ng)
+BAG_RATE = constants['BAG_RATE']
+BAG_EFFICIENCY = constants['BAG_EFFICIENCY']  # Efficiency with which somatic mass of parlads can be converted to dauers
+
+# Food constants
+STARTING_FOOD = constants['STARTING_FOOD']  # 10 mg = 1x10^7 ng
+FEEDING_AMOUNT = constants['FEEDING_AMOUNT']  # 10 mg added per feeding schedule
+
+# Environment size
+FLASK_VOLUME = constants['FLASK_VOLUME'] # default = 5 mL
+
+# Scheduling constants
+FEEDING_SCHEDULE = constants['FEEDING_SCHEDULE']  # Frequency of adding food (default = 24 hr)
+CULLING_SCHEDULE = constants['CULLING_SCHEDULE']  # Frequency of culling (default = 24 hr)
+PERCENT_CULL = constants['PERCENT_CULL']  # Percent of "media" culled at each culling interval
+
+# Metabolic constants
+COST_OF_LIVING = constants['COST_OF_LIVING']  # Percent biomass consumed per timestep through metabolism
+METABOLIC_EFFICIENCY = constants['METABOLIC_EFFICIENCY']  # Percent food converted to worm or egg mass after consumption
+
+# Culling percentages for each stage
+EGG_CULL_PERCENT = constants['EGG_CULL_PERCENT']
+LARVA_CULL_PERCENT = constants['LARVA_CULL_PERCENT']
+DAUER_CULL_PERCENT = constants['DAUER_CULL_PERCENT']
+ADULT_CULL_PERCENT = constants['ADULT_CULL_PERCENT']
+PARLAD_CULL_PERCENT = constants['PARLAD_CULL_PERCENT']
+
+
+L1_ARREST_ENTER_THRESHOLD = constants["L1_ARREST_ENTER_THRESHOLD"]
+L1_ARREST_EXIT_THRESHOLD = constants["L1_ARREST_EXIT_THRESHOLD"]
+
+# You can now use these constants in your simulation code
+GENOME_VERSION = "0.1"
+
 class Simulation:
     """Totality of the environment
 
@@ -23,7 +86,7 @@ class Simulation:
     variants = []
     dynamic_table = None
 
-    def __init__(self, output_location, number_worms, starting_stage, starting_food, length, report_individuals, connection, engine):
+    def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None, engine=None):
         self.worms = Worms()
         self.worms.initialize_worms(number_worms, starting_stage)
         self.dead = Dead_worms()

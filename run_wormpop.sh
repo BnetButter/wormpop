@@ -6,7 +6,7 @@ run_wormpop()
     eval "$(conda shell.bash hook)"
     conda activate simulation_env
 
-    python3 simulation.py --parameters=constants.json --variants=variants.json --database=database.sqlite
+    python3 main.py --parameters=constants.json --variants=variants.json --database=database.sqlite
 )}
 
 export -f run_wormpop
