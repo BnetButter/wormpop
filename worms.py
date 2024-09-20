@@ -5,6 +5,7 @@ from database import WormSummary
 import math
 from genome import Genome
 import typing
+import functools
 
 from config import load_constants
 constants = load_constants()
@@ -196,7 +197,7 @@ class Worm:
             self.genome = genome if genome else random.choice(choices)
 
     def cull_maybe(self):
-        roll = random.rand()
+        roll = np.random.rand()
         if roll <= self.CULL_PERCENT / 100:
             self.die('culled')
     
@@ -488,7 +489,7 @@ class Larva(Worm):
                 return []
 
         if self.can_dauer:
-            if random.rand() < self.genome.dauer_probability:
+            if np.random.rand() < self.genome.dauer_probability:
                 self.dauer()
                 return []
 
@@ -500,7 +501,7 @@ class Larva(Worm):
         
         
 
-        roll = random.rand() # Random number between 0 and 1
+        roll = np.random.rand() # Random number between 0 and 1
 
 
         if roll < self.p_starve:
@@ -510,7 +511,7 @@ class Larva(Worm):
                 return []
 
             else: # Unable to dauer -> starve
-                newroll = random.rand()
+                newroll = np.random.rand()
                 if newroll < LARVAL_STARVE_PROB: # Chance of larvae to cheat death
                     self.die('starvation')
                     return []
@@ -572,7 +573,7 @@ class L1Arrest(Worm):
     def make_checks(self, current_food, prev_food):
         probability = starve_from_l1_arrest(simulation_globals.instance.timestep / 24)
 
-        if random.random() > probability:
+        if np.random.random() > probability:
             self.die("starvation")
             return []
     
@@ -626,7 +627,7 @@ class Dauer(Worm):
 
         self.p_awaken = DAUER_EXIT_PROB * math.sqrt(0.5 * (current_food + prev_food) * 1e6 * FLASK_VOLUME) # Converted back to ng here for convenience
                                                                                                            # Could also just use converted dauer exit probability (3.24e-5 * sqrt(5e6) = 0.0724486)
-        roll = random.rand()
+        roll = np.random.rand()
         if roll < self.p_awaken:
             self.exit_dauer()
 
@@ -804,7 +805,7 @@ class Adult(Worm):
             eggs.extend(new_eggs)
 
         self.p_starve = (1 / self.bag_rate) * math.exp(-0.5 * (current_food + prev_food) / self.bag_threshold)
-        roll = random.rand()
+        roll = np.random.rand()
         if roll < self.p_starve:
             self.bag()
             return eggs
@@ -812,7 +813,7 @@ class Adult(Worm):
         self.p_death = self.genome.life_span * (math.exp(self.age / gompertzTau) - 1) / gompertzA # Probability of dying at given time
 
         
-        roll = random.rand()
+        roll = np.random.rand()
         if roll < self.p_death:
             self.die('old_age')
 
