@@ -1,4 +1,3 @@
-from config import load_constants
 import random
 import numpy as np
 from reporting import CreateCounter, CreateDeathCounter
@@ -7,7 +6,10 @@ import math
 from genome import Genome
 import typing
 
+from config import load_constants
 constants = load_constants()
+
+import simulation_globals
 
 
 # Simulation time details
@@ -187,11 +189,11 @@ class Worm:
         self._summary_table = WormSummary(self.name) if self._summary_table is None else self._summary_table
 
         # self.genome = random.sample([NormalAppetite, FatWorm, SkinnyWorm])
+        choices = simulation_globals.variants
 
-        choices = Simulation.variants
-
+        #randomly pick a choice if choices isn't decided yet
         if not hasattr(self, "genome"):
-            self.genome = genome if genome else choices[random.randint(0, len(choices))]
+            self.genome = genome if genome else random.choice(choices)
 
     def cull_maybe(self):
         roll = random.rand()
@@ -211,15 +213,15 @@ class Worm:
         self._summary_table.Total_Eggs_Laid = getattr(self, "eggs_laid", 0)
 
         if cause_of_death == "culled":
-            Simulation.instance._summary.Worms_died_cull += 1
+            simulation_globals.instance._summary.Worms_died_cull += 1
         elif cause_of_death == "starvation":
-            Simulation.instance._summary.Worms_died_starvation += 1
+            simulation_globals.instance._summary.Worms_died_starvation += 1
         elif cause_of_death == "bag":
-            Simulation.instance._summary.Worms_died_bag += 1
+            simulation_globals.instance._summary.Worms_died_bag += 1
         elif cause_of_death == "old_age":
-            Simulation.instance._summary.Worms_died_old_age += 1
+            simulation_globals.instance._summary.Worms_died_old_age += 1
         elif cause_of_death == "arrested_development":
-            Simulation.instance._summary.Worms_died_arrested_development += 1
+            simulation_globals.instance._summary.Worms_died_arrested_development += 1
 
 
 
@@ -280,7 +282,7 @@ class Worm:
 
 
         # Cache the summary table to be committed later
-        Simulation.instance.bulk_data.append(self._summary_table)
+        simulation_globals.instance.bulk_data.append(self._summary_table)
 
             
 
@@ -420,9 +422,9 @@ class Larva(Worm):
     def eat(self, amount):
         metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
 
-        Simulation.instance._summary.Bacteria_to_worm_ingested_mg += amount/1e6
-        Simulation.instance._summary.Bacteria_to_worm_metabolic_inefficiency_mg += metabolic_efficiency_loss / 1e6
-        Simulation.instance._summary.Bacteria_to_worm_somatic_mass_mg = amount * METABOLIC_EFFICIENCY / 1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_ingested_mg += amount/1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_metabolic_inefficiency_mg += metabolic_efficiency_loss / 1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_somatic_mass_mg = amount * METABOLIC_EFFICIENCY / 1e6
         
 
 
@@ -490,7 +492,7 @@ class Larva(Worm):
                 self.dauer()
                 return []
 
-        dauer_multiplier = 1 #self.dauer_pheremone_function(Simulation.instance.worm_count)
+        dauer_multiplier = 1 #self.dauer_pheremone_function(simulation_globals.instance.worm_count)
 
 
         # Check dauer/starvation:
@@ -568,7 +570,7 @@ class L1Arrest(Worm):
         self._summary_table.Larva_span_days = (self.age - self._age_hours_entered_larva) / 24
 
     def make_checks(self, current_food, prev_food):
-        probability = starve_from_l1_arrest(Simulation.instance.timestep / 24)
+        probability = starve_from_l1_arrest(simulation_globals.instance.timestep / 24)
 
         if random.random() > probability:
             self.die("starvation")
@@ -675,7 +677,7 @@ class Adult(Worm):
 
     def tax(self):
         tax = self.mass * self.genome.metabolic_tax
-        Simulation.instance._summary.Bacteria_to_worm_metabolic_tax_mg += tax / 1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_metabolic_tax_mg += tax / 1e6
 
         self._summary_table.Total_Metabolic_Tax += tax
         self.mass -= tax
@@ -737,9 +739,9 @@ class Adult(Worm):
     def eat(self, amount):
         metabolic_efficiency_loss = amount - (amount * METABOLIC_EFFICIENCY)
 
-        Simulation.instance._summary.Bacteria_to_worm_ingested_mg += amount/1e6
-        Simulation.instance._summary.Bacteria_to_worm_metabolic_inefficiency_mg += metabolic_efficiency_loss/1e6
-        Simulation.instance._summary.Bacteria_to_worm_somatic_mass_mg = amount * METABOLIC_EFFICIENCY / 1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_ingested_mg += amount/1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_metabolic_inefficiency_mg += metabolic_efficiency_loss/1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_somatic_mass_mg = amount * METABOLIC_EFFICIENCY / 1e6
 
         self._summary_table.Total_Food_Consumed += amount
         self._summary_table.Total_Metabolic_Cost += metabolic_efficiency_loss
@@ -769,7 +771,7 @@ class Adult(Worm):
         else:
             self.actual_egg_mass = 0
         
-        Simulation.instance._summary.Bacteria_to_worm_eggs_mg += self.actual_egg_mass / 1e6
+        simulation_globals.instance._summary.Bacteria_to_worm_eggs_mg += self.actual_egg_mass / 1e6
 
 
         self.mass -= self.actual_egg_mass
@@ -821,15 +823,15 @@ class Adult(Worm):
 
         self.egg_history.append((
             number,
-            Simulation.instance.timestep
+            simulation_globals.instance.timestep
         ))
 
         Egg_partial = functools.partial(Egg, genome=self.genome)
         self._eggs_laid_timestep = int(number)
-        Simulation.instance._summary.Worms_born_egg = int(number)
+        simulation_globals.instance._summary.Worms_born_egg = int(number)
         result = [Egg_partial] * int(number)
         if result:
-            Simulation.instance.worms_that_laid_eggs.add(self.name)
+            simulation_globals.instance.worms_that_laid_eggs.add(self.name)
         return result
     @AdultToBagSet
     def bag(self):
@@ -893,7 +895,7 @@ class Parlad(Worm):
         released_dauers = []
         if self.age - self.lifespan >= 30:
             
-            Simulation.instance._summary.Worms_born_dauer += self.dauer_potential            
+            simulation_globals.instance._summary.Worms_born_dauer += self.dauer_potential            
 
             released_dauers.extend([Dauer]*self.dauer_potential)
 
@@ -934,141 +936,6 @@ class Dead(Worm):
         if not hasattr(self, 'lifespan'): self.lifespan = self.age
         self.note = 'Lifespan: {} days, Cause of death: {}'.format(self.lifespan / 24, self.cause_of_death)
         super(Dead, self).__init__(name)
-
-class Worms(list):
-    """Class for holding all worms in the simulation
-
-    Contains methods for things that apply to the whole population, e.g. "Do x to all worms at once."
-
-    Worms object is a list, so it can be iterated through, indexed, and appended to like any other list.
-    """
-
-    def initialize_worms(self, number_worms, starting_stage):
-        """Using this instead of a standard __init__ function so I can easily build and rebuild list.
-
-        Currently only with identical eggs, larvae, and dauers, but could potentially start with mixed population 
-        of randomized ages, masses, etc.
-        """
-        stagedict = {'egg' : Egg,
-                     'larva' : Larva,
-                     'dauer' : Dauer}
-
-        assert starting_stage in stagedict, "Only 'egg', 'larva', and 'dauer' may currently be used as starting stage"
-        
-        for i in range(number_worms):
-            name = 'worm_' + str(i + 1)
-            self.append(stagedict[starting_stage](name))
-        self.total_worm_number = number_worms
-    
-    def ageup(self):
-        [w.ageup() for w in self]
-
-    def tax(self):
-        [w.tax() for w in self]
-
-    def cull(self, percent_chance):
-        """Each living worm has chance of getting culled at each culling interval.
-        """
-
-        for w in self:
-            if w.stage == 'dead':
-                pass
-            else:
-                w.cull_maybe()
-     
-    #@profile
-    def compute_appetite(self, food_concentration):
-        """Appetite based on growth mass + egg mass + cost of living
-        
-        Only larvae and adults actually eat and grow, and only adults lay eggs.
-
-        A little confused here since the paper phrases appetite as "the amount of food
-        [a worm] would eat if food were plentiful," but both growth mass and egg mass are 
-        based on current food availability? Maybe I'm misunderstanding something.
-
-        Probably what is meant by this is something closer to "the amount a worm would eat
-        if it had all the food in the environment to itself," which would make sense since 
-        a worm presumably has knowledge of the food concentration and its desire to grow,
-        but it has less knowledge of how much it will need to share that food (in the model at
-        least, since there are still crowd sensing mechanisms in the real world).
-        
-        """
-
-        for w in self:
-            w.sensed_food = food_concentration
-            w.get_growth_mass(food_concentration)
-            w.get_egg_mass(food_concentration)
-            w.get_maintenance()
-            w.appetite = (w.growth_mass + w.desired_egg_mass + w.maintenance) / METABOLIC_EFFICIENCY # Previous model only adjusts growth and egg mass by efficiency,
-                                                                                                     # so this is a change I am making. Will be good to compare
-
-        self.summed_appetite = numpy.sum(numpy.array([w.appetite for w in self]))
-
-
-    def eat(self, bacterial_mass):
-        """Worms eat as much as they can based on their growth requirements and appetites of other worms.
-
-        Confused about how portion is handled in the previous model, since portion is calculated and then a second restriction:
-        (portion*appetite) / (portion + appetite) appears to be applied. I think this is to keep worms from consuming all the 
-        available food. If we know empirically that worms grow at a certain rate in a certain concentration, then I think it makes
-        the most sense to assume they eat at least that much bacteria, though.
-        
-        Returns total amount consumed
-        """
-        if bacterial_mass > self.summed_appetite:
-            for w in self:
-                w.portion = w.appetite
-                w.eat(w.portion)
-            return self.summed_appetite
-        
-        else:
-            for w in self:
-                w.portion = (w.appetite / self.summed_appetite) * bacterial_mass
-                w.eat(w.portion)
-            return bacterial_mass
-
-    def make_checks(self, food_history):
-        """Runs checks applicable to each worm
-
-        Since this is the only way for new worms to enter the simulation, each check function returns an empty list if there are no new 
-        worms, or a list of class objects of the appropriate worm sublcass (Egg or Dauer, for instance). The new arrivals are then appended
-        to the Worms object.
-        """
-        
-        current_food = food_history[-1]
-        prev_food = food_history[-2]
-
-        new_arrivals = [w.make_checks(current_food, prev_food) for w in self]
-        flat_list = [w for new in new_arrivals for w in new]
-        
-        self += [w('worm_' + str(self.total_worm_number + i + 1)) for i, w in enumerate(flat_list)]
-        self.total_worm_number += len(flat_list)
-
-
-
-class Dead_worms(list):
-    """Testing moving dead worms into this object instead of keeping them with the others to more easily keep track of living worms.
-
-    For the purposes of bookkeeping, parlads are considered "alive" in that they aren't added to this list until they burst. Their lifespan,
-    however, is still determined as the moment at which they starve and bag.
-    """
-
-    #TODO: decide if this class is worth keeping
-    # Might be useful for writing out invdividuals only after they die
-
-    def get_causes_of_death(self):
-        """Return a dictionary keyed by cause of death for all dead worms at given timepoint
-        """
-        causes_of_death = ['old_age','starvation','bag','culled','arrested_development']
-        deathcounts = {}
-        for cause in causes_of_death:
-            deathcounts[cause] = numpy.count_nonzero([w.cause_of_death == cause for w in self if hasattr(w, 'cause_of_death')])
-
-        return deathcounts
-
-    def get_lifespans(self):
-        lifespans = [w.lifespan for w in self]
-        return lifespans
 
 #%%
 

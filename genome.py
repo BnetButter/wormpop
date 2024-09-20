@@ -3,6 +3,8 @@ from sqlalchemy import Column, String, Float
 from sqlalchemy.ext.declarative import declarative_base
 from utils import get_column_default
 from database import Base
+from simulation_globals import *
+from sqlalchemy.orm import Session
 #Base = declarative_base()
 
 class Genome(Base):
@@ -40,3 +42,30 @@ class Genome(Base):
             }
 
         return schema
+
+def load_variants(data: dict, session: Session):
+    """
+    Loads variants from a given dictionary and inserts them into the database if they don't already exist.
+
+    Args:
+        data (dict): Dictionary containing the variant data.
+        session (Session): SQLAlchemy session used to interact with the database.
+
+    Raises:
+        AssertionError: If a variant does not have a "variant" key.
+    """
+    for d in data["variants"]:
+        assert "variant" in d, "Must name the variant"
+        
+        # Check if the variant already exists
+        existing_variant = session.query(Genome).filter_by(variant=d["variant"]).first()
+        
+        if existing_variant:
+            print(f"Variant {d['variant']} already exists: {existing_variant}")
+        else:
+            # Add the new record
+            G = Genome(**d)
+            session.add(G)
+            variants.append(G)
+    
+    session.commit()  # Commit changes to the database

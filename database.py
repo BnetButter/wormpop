@@ -1,8 +1,14 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
+import datetime, subprocess
 import os
 
 Base = declarative_base()
+
+from config import load_constants
+constants = load_constants()
+
+STARTING_FOOD = constants['STARTING_FOOD']  # 10 mg = 1x10^7 ng
 
 class WormTimestep(Base):
     __tablename__ = "worms"

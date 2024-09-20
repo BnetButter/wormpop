@@ -6,11 +6,12 @@ USAGE: simulation [--parameters=<string>] [ --database=<string> ] [ --name=<stri
 
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-import os
+import os, sys
 import json
 import docopt
-import pathlib
+from pathlib import Path
 from config import set_config_path
+import simulation_globals
 
 args = docopt.docopt(__doc__)
 #set path of config file so it can be loaded in other modules
@@ -19,6 +20,7 @@ set_config_path(parameters)
 
 from simulation import Simulation
 from database import Base
+from genome import load_variants
 
 def main():
     args = docopt.docopt(__doc__)
@@ -35,6 +37,10 @@ def main():
 
     # Establish connection
     directory = args["--directory"] if args["--directory"] else "Simulation"
+    database_file = Path(directory) / args['--database']
+    if database_file.is_file():
+        print(f"Deleting {database_file.stem}")
+        database_file.unlink()
     engine = create_engine(f"sqlite:///{directory}/{args['--database']}")
 
     Base.metadata.create_all(engine)
@@ -42,7 +48,11 @@ def main():
     Session = sessionmaker(bind=engine)
     # Create the session and run the simulation
     with Session() as session:
-        Simulation.load_variants(variants_data, session)
+        #loaded in as a list of genomes of each variants
+        #print(simulation_globals.variants)
+        load_variants(variants_data, session)
+        #print(simulation_globals.variants)
+        #sys.exit()
         simulation = Simulation(
             directory, 
             connection=session, 

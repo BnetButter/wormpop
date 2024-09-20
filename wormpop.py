@@ -7,6 +7,7 @@ USAGE: wormpop [--parameters=<string>] [ --database=<string> ] [ --name=<string>
 """
 
 import pathlib
+from pathlib import Path
 import math
 import numpy
 from numpy import random
@@ -552,7 +553,7 @@ class Simulation:
     variants = []
     dynamic_table = None
 
-    def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None, engine=None):
+    def __init__(self, output_location, number_worms=STARTING_WORMS, starting_stage=STARTING_STAGE, starting_food=STARTING_FOOD, length=SIMULATION_LENGTH, report_individuals=False, connection=None, engine=None, variants=None):
         self.worms = Worms()
         self.worms.initialize_worms(number_worms, starting_stage)
         self.dead = Dead_worms()
@@ -567,7 +568,7 @@ class Simulation:
         self.connection = connection
         self.bulk_data = []
         self.bulk_death_data = [] # death data handled differently
-        self.variants = []
+        self.variants = variants
         self.worm_count = [] # list of number of worms in each timestep
         self.engine = engine
         self._summary = SimulationSummary()
@@ -586,7 +587,6 @@ class Simulation:
             session.add(G)
             cls.variants.append(G)
         
-        print(data)
         session.commit()
 
 
@@ -981,7 +981,7 @@ class Worms(list):
                      'dauer' : Dauer}
 
         assert starting_stage in stagedict, "Only 'egg', 'larva', and 'dauer' may currently be used as starting stage"
-        
+
         for i in range(number_worms):
             name = 'worm_' + str(i + 1)
             self.append(stagedict[starting_stage](name))
@@ -1200,13 +1200,12 @@ class Worm:
     _summary_table: typing.Optional[WormSummary] = None
     
 
-    def __init__(self, name, genome=None):
+    def __init__(self, name, variants, genome=None):
         self.name = name
         self._summary_table = WormSummary(self.name) if self._summary_table is None else self._summary_table
 
         # self.genome = random.sample([NormalAppetite, FatWorm, SkinnyWorm])
-
-        choices = Simulation.variants
+        choices = variants
 
         if not hasattr(self, "genome"):
             self.genome = genome if genome else choices[random.randint(0, len(choices))]
@@ -1971,6 +1970,11 @@ def main():
         variants_file = args["--variants"]
         with open(variants_file) as fp:
             variants_data = json.load(fp)
+
+    database_file = Path("Simulation") / args['--database']
+    if database_file.is_file():
+        print(f"Deleting {database_file.stem}")
+        database_file.unlink()
     
 
     if args["--database"]:
