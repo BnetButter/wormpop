@@ -6,6 +6,7 @@ from genome import Genome
 from database import SimulationSummary
 from reporting import CreateCounter, CreateDeathCounter
 import json
+import numpy
 
 #load in variables from config file
 from config import load_constants
@@ -472,7 +473,7 @@ class Simulation:
             self.individual_path.mkdir(exist_ok=True)
         
         with open(self.path / 'parameters.json', "w") as fp:
-            json.dump(param, fp, indent=4)
+            json.dump(constants, fp, indent=4)
 
         self.report(header=True) # Initial conditions/header for output file
 
