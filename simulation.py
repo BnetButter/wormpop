@@ -3,16 +3,19 @@ import pathlib
 import numpy as np
 from worms import *
 from genome import Genome
-from database import SimulationSummary
+from database import *
 from reporting import CreateCounter, CreateDeathCounter
 import json
 import numpy
+import csv
+from sqlalchemy import MetaData
+import collections
 
 #load in variables from config file
 from config import load_constants
 constants = load_constants()
 
-#For simulation_instance
+#For instance
 import simulation_globals
 
 # Simulation time details
@@ -364,7 +367,7 @@ class Simulation:
         
             with open(self.variant_count, "w") as fp:
                 writer = csv.writer(fp, delimiter="\t")
-                fields = ["Timestep"] + [ variant.variant for variant in variants ]
+                fields = ["Timestep"] + [ variant.variant for variant in simulation_globals.variants ]
                 writer.writerow(fields)
             
             metadata = MetaData(bind=self.engine)
@@ -422,7 +425,7 @@ class Simulation:
 
         with open(self.variant_count, "a+") as fp:
             writer = csv.writer(fp, delimiter="\t")
-            data = [self.timestep] + [ counter[variant.variant] for variant in Simulation.variants ]
+            data = [self.timestep] + [ counter[variant.variant] for variant in simulation_globals.variants ]
             writer.writerow(data)
     
 

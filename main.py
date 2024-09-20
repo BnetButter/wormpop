@@ -51,9 +51,7 @@ def main():
         #loaded in as a list of genomes of each variants
         #print(simulation_globals.variants)
         load_variants(variants_data, session)
-        #print(simulation_globals.variants)
-        #sys.exit()
-        simulation = Simulation(
+        simulation_globals.instance = simulation = Simulation(
             directory, 
             connection=session, 
             report_individuals=args["--report-individuals"], 

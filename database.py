@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy import Column, Integer, String, Float, DateTime, Table
 from sqlalchemy.ext.declarative import declarative_base
 import datetime, subprocess
 import os
@@ -272,3 +272,15 @@ def create_dynamic_table(metadata, table_name, die_ind):
     
     dynamic_table = Table(table_name, metadata, *columns)
     return dynamic_table
+
+def create_entry_data(timestep, die_ind, death_metrics):
+    entry_data = {
+        "timestep": timestep
+    }
+    
+    for _class, causes in die_ind.items():
+        for cause_of_death in causes.keys():
+            entry_data[f"{_class}_{cause_of_death}_ind"] = death_metrics[0][_class][cause_of_death]
+            entry_data[f"{_class}_{cause_of_death}_mass"] = death_metrics[1][_class][cause_of_death]
+    
+    return entry_data

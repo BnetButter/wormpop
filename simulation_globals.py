@@ -3,4 +3,4 @@
 
 # Initialize the global variable
 variants = []
-simulation_instance: "Simulation" = None
+instance: "Simulation" = None
