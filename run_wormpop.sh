@@ -11,6 +11,7 @@ run_wormpop()
 
 export -f run_wormpop
 
-srun --time=2-00:00:00 --export=ALL --exclusive --job-name=plot_green bash -c 'run_wormpop'
+bash -c 'run_wormpop'
+#srun --time=2-00:00:00 --export=ALL --exclusive --job-name=plot_green bash -c 'run_wormpop'
 #srun -N1 --exclusive --pty /usr/bin/env python3 simulation.py --parameters=constants.json --variants=variants.json --database=database.sqlite
 #srun -N1 --exclusive --pty /usr/bin/env python3 python3 simulation.py --parameters=constants.json --variants=variants.json --database=database.sqlite
